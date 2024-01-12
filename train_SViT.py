@@ -4,20 +4,19 @@ import os
 import random
 import zipfile
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from PIL import Image
-from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets, transforms
-from tqdm.notebook import tqdm
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from tqdm import tqdm
+from torch.nn.modules.distance import PairwiseDistance
 
+from utils.dataloader import create_dataloader
+from losses.triplet_loss import TripletLoss
 from models.simple_vit import SimpleViT
 
 
@@ -48,22 +47,28 @@ def set_model_gpu_mode(model):
     return model, flag_train_multi_gpu
 
 
+def forward_pass(imgs, model, batch_size):
+    imgs = imgs.cuda()
+    embeddings = model(imgs)
+
+    # Split the embeddings into Anchor, Positive, and Negative embeddings
+    anc_embeddings = embeddings[:batch_size]
+    pos_embeddings = embeddings[batch_size: batch_size * 2]
+    neg_embeddings = embeddings[batch_size * 2:]
+
+    return anc_embeddings, pos_embeddings, neg_embeddings, model
+
+
 def train():
     # Define hyperparameter
-    dataroot = args.dataroot
+    dataroot = '/media/iai-lab/wanqing/YCB_Video_Dataset'
     epochs = 20
-    iterations_per_epoch = args.iterations_per_epoch
-    model_architecture = args.model_architecture
     embedding_dimension = 512
     batch_size = 64
-    resume_path = args.resume_path
     num_workers = 8
     learning_rate = 3e-5
     margin = 0.2
     image_size = 256
-    use_semihard_negatives = args.use_semihard_negatives
-    training_triplets_path = args.training_triplets_path
-    flag_training_triplets_path = False
     start_epoch = 0
     seed = 42
     gamma = 0.7
@@ -75,7 +80,7 @@ def train():
     model = SimpleViT(
         image_size=image_size,
         patch_size=32,
-        num_classes=1000,
+        num_classes=embedding_dimension,
         dim=1024,
         depth=6,
         heads=16,
@@ -85,7 +90,7 @@ def train():
     model, gpu_flag = set_model_gpu_mode(model)
 
     # loss function
-    criterion = nn.CrossEntropyLoss()
+    criterion = TripletLoss(margin=margin)
     # optimizer
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     # scheduler
@@ -100,46 +105,62 @@ def train():
         ]
     )
 
-    train_loader = DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(dataset=valid_data, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(dataset=test_data, batch_size=batch_size, shuffle=True)
-
-    for epoch in range(epochs):
+    for epoch in tqdm(range(start_epoch, epochs)):
         epoch_loss = 0
-        epoch_accuracy = 0
 
-        for data, label in tqdm(train_loader):
-            data = data.to(device)
-            label = label.to(device)
+        train_loader = create_dataloader(dataset="train", batch_size=batch_size, shuffle=True)
+        valid_loader = create_dataloader(dataset="val", batch_size=batch_size, shuffle=True)
 
-            output = model(data)
-            loss = criterion(output, label)
+        for data in tqdm(train_loader):
+            l2_distance = PairwiseDistance(p=2)
+
+            anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
+                imgs=data,
+                model=model,
+                batch_size=batch_size
+            )
+
+            # Hard Negative triplet selection
+            #  (negative_distance - positive_distance < margin)
+            #   Based on: https://github.com/davidsandberg/facenet/blob/master/src/train_tripletloss.py#L296
+            pos_dists = l2_distance.forward(anc_embeddings, pos_embeddings)
+            neg_dists = l2_distance.forward(anc_embeddings, neg_embeddings)
+            all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
+            valid_triplets = np.where(all_pos == 1)
+
+            anc_valid_embeddings = anc_embeddings[valid_triplets]
+            pos_valid_embeddings = pos_embeddings[valid_triplets]
+            neg_valid_embeddings = neg_embeddings[valid_triplets]
+
+            triplet_loss = criterion.forward(
+                anchor=anc_valid_embeddings,
+                pos=pos_valid_embeddings,
+                neg=neg_valid_embeddings
+            )
 
             optimizer.zero_grad()
-            loss.backward()
+            triplet_loss.backward()
             optimizer.step()
 
-            acc = (output.argmax(dim=1) == label).float().mean()
-            epoch_accuracy += acc / len(train_loader)
-            epoch_loss += loss / len(train_loader)
+            epoch_loss += triplet_loss / len(train_loader)
 
         with torch.no_grad():
-            epoch_val_accuracy = 0
             epoch_val_loss = 0
-            for data, label in valid_loader:
-                data = data.to(device)
-                label = label.to(device)
+            for data in valid_loader:
 
-                val_output = model(data)
-                val_loss = criterion(val_output, label)
+                anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
+                    imgs=data,
+                    model=model,
+                    batch_size=batch_size
+                )
 
-                acc = (val_output.argmax(dim=1) == label).float().mean()
-                epoch_val_accuracy += acc / len(valid_loader)
+                val_loss = criterion.forward(
+                    anchor=anc_embeddings,
+                    pos=pos_embeddings,
+                    neg=neg_embeddings
+                )
+
                 epoch_val_loss += val_loss / len(valid_loader)
-
-        print(
-            f"Epoch : {epoch + 1} - loss : {epoch_loss:.4f} - acc: {epoch_accuracy:.4f} - val_loss : {epoch_val_loss:.4f} - val_acc: {epoch_val_accuracy:.4f}\n"
-        )
 
 
 if __name__ == '__main__':
