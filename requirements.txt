@@ -7,3 +7,6 @@ pandas
 scikit-learn
 tqdm
 pillow
+h5py
+pypng
+blenderproc

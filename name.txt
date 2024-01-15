@@ -1,0 +1,21 @@
+002_master_chef_can          blue can
+003_cracker_box              red box
+004_sugar_box                yellow box
+005_tomato_soup_can          red can
+006_mustard_bottle           yellow bottle
+007_tuna_fish_can            not used
+008_pudding_box              brown box
+009_gelatin_box              not used
+010_potted_meat_can          not used
+011_banana                   banana
+019_pitcher_base             blue jug
+021_bleach_cleanser          white bottle
+024_bowl                     red bowl
+025_mug                      red cup
+035_power_drill              not used
+036_wood_block               wood block
+037_scissors                 scissors
+040_large_marker             not used
+051_large_clamp              not used
+052_extra_large_clamp        not used
+061_foam_brick               marron block
