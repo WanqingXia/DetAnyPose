@@ -1,14 +1,15 @@
-#!/usr/bin/python3.8
+#!/usr/bin/python3
 # -*- encoding: utf-8 -*-
 
 import blenderproc as bproc
 import numpy as np
+import sys
 import os
 import cv2
 import h5py
 import shutil
 import png
-from tqdm import tqdm
+import time
 
 """
 This is the main script to generate all the images for individual object 
@@ -177,6 +178,26 @@ def sample_points(radius: float, sample: int) -> np.ndarray:
     return np.array(points)
 
 
+def progressbar(it, prefix="", size=60, out=sys.stdout):  # Python3.6+
+    count = len(it)
+    start = time.time()
+
+    def show(j):
+        x = int(size * j / count)
+        remaining = ((time.time() - start) / j) * (count - j)
+
+        mins, sec = divmod(remaining, 60)
+        time_str = f"{int(mins):02}:{sec:05.2f}"
+
+        print(f"{prefix}[{u'█' * x}{('.' * (size - x))}] {j}/{count} Est wait {time_str}", end='\r', file=out,
+              flush=True)
+
+    for i, item in enumerate(it):
+        yield item
+        show(i + 1)
+    print("\n", flush=True, file=out)
+
+
 def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
     """
     This function is used to render images of the given object with BlenderProc.
@@ -191,10 +212,9 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
         None
 
     """
-    cam_points = sample_points(radius=diag_length * 3, sample=400)
     # The core function for rendering images, render a colour and depth image
     # for each camera location
-    bproc.init()
+    cam_points = sample_points(radius=diag_length * 2, sample=400)
 
     # load the objects into the scene
     objs = bproc.loader.load_obj(obj_path)
@@ -211,12 +231,13 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
     # activate depth rendering
     if flag:
         bproc.renderer.enable_depth_output(activate_antialiasing=False)
-        K = bproc.camera.get_intrinsics_as_K_matrix()
-        with open(os.path.join("./camera_intrinsics.txt"), 'wb') as cam:
-            np.savetxt(cam, K)
+        # K = bproc.camera.get_intrinsics_as_K_matrix()
+        # with open(os.path.join("./camera_intrinsics.txt"), 'wb') as cam:
+        #     np.savetxt(cam, K)
 
-    for num, cam_location in tqdm(enumerate(cam_points), desc="Rendering images for" + save_path.split("/")[-1]):
-
+    num = 0
+    for cam_location in progressbar(cam_points, prefix='Generating for' + save_path.split('/')[-1], size=100):
+        num += 1
         # set light
         light.set_location(cam_location)
         light.set_type("POINT")
@@ -255,10 +276,15 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
 
 if __name__ == "__main__":
     # Get the paths to object model and the model size
-    paths, diags = calc_box('/media/iai-lab/wanqing/YCB_Video_Dataset/models')
+    paths, diags = calc_box('/home/wanqing/YCB_Video_Dataset/models')
     first_execution_flag = True
+    bproc.init()
     for obj_path, diag_l in zip(paths, diags):
         # using a wrong file to protect generated files
         save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'YCB_objects')
         render(obj_path, diag_l, save_path, first_execution_flag)
         first_execution_flag = False
+        bproc.clean_up()
+    if os.path.exists(folder_path):
+        # Delete the folder and all its contents
+        shutil.rmtree(folder_path)
