@@ -2,44 +2,72 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.spatial import distance_matrix
 
 """
-This is the script to sample camera points on a sphere
-Use the function by input the file path to save all points, sphere radius and number of points
+Author： Wanqing Xia
+Email: wxia612@aucklanduni.ac.nz
+
+This is the script to calculate the min, mean, max angular distance between camera points sampled 
+on a sphere surrounding the object, helps us to determine the sampling density
 """
 
-def sample_points(path, radius, sample):
-    points = [[0, 0, 0] for _ in range(sample)]
 
-    for n in range(sample):
-        phi = np.arccos(-1.0 + (2.0 * (n + 1) - 1.0) / sample)
-        theta = np.sqrt(sample * np.pi) * phi
-        points[n][0] = radius * np.cos(theta) * np.sin(phi)
-        points[n][1] = radius * np.sin(theta) * np.sin(phi)
-        points[n][2] = radius * np.cos(phi)
+def fibonacci_sphere(samples=1, radius=1):
+    """
+    Generates points on the surface of a sphere using the Fibonacci method.
+    :param samples: Number of points to generate
+    :param radius: Radius of the sphere
+    :return: List of points on the sphere surface
+    """
+    points = []
+    phi = np.pi * (3. - np.sqrt(5.))  # golden angle in radians
 
-    points = np.array(points)
-    savepath = os.path.join(path,"positions.txt")
-    np.savetxt(savepath, points, fmt='%1.4f')
-    ##################################################################
-    # This block of the code is used to visualise the sampled sphere
-    # fig = plt.figure("sphere points uniform")
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.set_aspect('equal')
-    #
-    # u = np.linspace(0, 2 * np.pi, 100)
-    # v = np.linspace(0, np.pi, 100)
-    # x = (radius-0.01) * np.outer(np.cos(u), np.sin(v))
-    # y = (radius-0.01) * np.outer(np.sin(u), np.sin(v))
-    # z = (radius-0.01) * np.outer(np.ones(np.size(u)), np.cos(v))
-    #
-    # ax.plot_surface(x, y, z,  rstride=4, cstride=4, color='k', linewidth=1, antialiased=False)
-    # ax.scatter(points[:,0], points[:,1], points[:,2], color='r')
-    # ax.scatter(points[:,0], points[:,1], -points[:,2], color='r')
-    #
-    # plt.show()
-    ####################################################################
-    return savepath
+    for i in range(samples):
+        y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+        radius_at_y = np.sqrt(1 - y * y) * radius  # radius at y, scaled by the desired radius
+
+        theta = phi * i  # golden angle increment
+
+        x = np.cos(theta) * radius_at_y
+        z = np.sin(theta) * radius_at_y
+        y *= radius  # scale y coordinate by the desired radius
+
+        points.append((x, y, z))
+
+    return points
+
+
+def angular_distance(point1, point2):
+    """
+    Calculate the angular distance in degrees between two points on a sphere.
+    """
+    inner_product = np.dot(point1, point2) / (np.linalg.norm(point1) * np.linalg.norm(point2))
+    angle_rad = np.arccos(np.clip(inner_product, -1.0, 1.0))
+    return np.degrees(angle_rad)
+
 
 if __name__ == "__main__":
-    savepath = sample_points('./', radius=0.5, sample=400)
+    # Generate 4000 points
+    points = fibonacci_sphere(4000, 1)  # radius is 1 for simplicity
+
+    # Calculate distance matrix
+    dist_matrix = distance_matrix(points, points)
+
+    # Sort each row in the distance matrix and take the distances to the 5 nearest neighbors
+    nearest_dists = np.sort(dist_matrix, axis=1)[:, 1:6]
+
+    # Calculate the angular distances for each point to its 5 nearest neighbors
+    angular_dists = []
+    for i in range(len(points)):
+        for j in range(5):
+            neighbor_idx = np.where(dist_matrix[i] == nearest_dists[i, j])[0][0]
+            angular_dists.append(angular_distance(points[i], points[neighbor_idx]))
+
+    # Calculate min, max, and mean of the angular distances
+    min_angular_dist = np.min(angular_dists)
+    max_angular_dist = np.max(angular_dists)
+    mean_angular_dist = np.mean(angular_dists)
+    print("min angular distance: ", min_angular_dist)
+    print("max angular distance:", max_angular_dist)
+    print("mean angular distance: ", mean_angular_dist)

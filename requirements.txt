@@ -10,3 +10,4 @@ pillow
 h5py
 pypng
 blenderproc
+vedo

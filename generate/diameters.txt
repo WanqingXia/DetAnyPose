@@ -1,0 +1,14 @@
+/home/wanqing/YCB_Video_Dataset/models/002_master_chef_can/textured.obj 0.201
+/home/wanqing/YCB_Video_Dataset/models/003_cracker_box/textured.obj 0.279
+/home/wanqing/YCB_Video_Dataset/models/004_sugar_box/textured.obj 0.206
+/home/wanqing/YCB_Video_Dataset/models/005_tomato_soup_can/textured.obj 0.140
+/home/wanqing/YCB_Video_Dataset/models/006_mustard_bottle/textured.obj 0.225
+/home/wanqing/YCB_Video_Dataset/models/008_pudding_box/textured.obj 0.193
+/home/wanqing/YCB_Video_Dataset/models/011_banana/textured.obj 0.212
+/home/wanqing/YCB_Video_Dataset/models/019_pitcher_base/textured.obj 0.319
+/home/wanqing/YCB_Video_Dataset/models/021_bleach_cleanser/textured.obj 0.279
+/home/wanqing/YCB_Video_Dataset/models/024_bowl/textured.obj 0.234
+/home/wanqing/YCB_Video_Dataset/models/025_mug/textured.obj 0.170
+/home/wanqing/YCB_Video_Dataset/models/036_wood_block/textured.obj 0.253
+/home/wanqing/YCB_Video_Dataset/models/037_scissors/textured.obj 0.224
+/home/wanqing/YCB_Video_Dataset/models/061_foam_brick/textured.obj 0.107
