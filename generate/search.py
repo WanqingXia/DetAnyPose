@@ -24,7 +24,7 @@ data = mat['poses']
 rotation_matrix_ori = np.array(data[:3, :3, 1])
 
 # Select the folder by filename
-dir = '/home/wanqing/YCB_Video_Dataset/YCB_objectstest/003_cracker_box'
+dir = '/home/wanqing/YCB_Video_Dataset/YCB_objects/003_cracker_box'
 # List all files in the directory
 files = sorted(os.listdir(dir))
 # Filter out files that end with '.txt'
