@@ -181,13 +181,14 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
         with h5py.File(os.path.join(save_path, str(num), '0.hdf5'), 'r') as h5f:
             padded_num = "{:04d}".format(num)
             colours = np.array(h5f["colors"])[..., ::-1].copy()
-            cv2.imwrite(os.path.join(save_path, f'{padded_num}-color.png'), colours)
             with open(os.path.join(save_path, f'{padded_num}-depth.png'), 'wb') as im:
-                float_arr = np.array(h5f["depth"])
+                depth_original = np.array(h5f["depth"])
                 mask = np.array(h5f["depth"]) < 100
-                int_arr = float_arr * mask * 10000
+                depth_enlarged = depth_original * mask * 10000
                 writer = png.Writer(width=256, height=256, bitdepth=16, greyscale=True)
-                writer.write(im, int_arr.astype(np.int16))
+                writer.write(im, depth_enlarged.astype(np.int16))
+                masked_img = colours * np.expand_dims(mask, axis=-1)
+                cv2.imwrite(os.path.join(save_path, f'{padded_num}-color.png'), masked_img)
             with open(os.path.join(save_path, f'{padded_num}-matrix.txt'), 'wb') as dat:
                 np.savetxt(dat, cam2world_matrix)
         shutil.rmtree(os.path.join(save_path, str(num)))

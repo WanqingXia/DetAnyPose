@@ -21,6 +21,8 @@ import yaml
 from PIL import Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
+import warnings
+
 
 # Parameters
 NUM_THREADS = min(8, os.cpu_count())  # number of multiprocessing threads
@@ -42,22 +44,14 @@ def create_dataloader(path, type, imgsz, batch_size, workers=8):
                                              num_workers=workers,
                                              sampler=torch.utils.data.RandomSampler(dataset),
                                              pin_memory=True,
-                                             collate_fn=LoadImagesAndLabels.collate_fn
                                              )
     return dataloader, dataset
-
-
-def angle_between_vectors(v1, v2):
-    """Calculate the angle in degrees between vectors 'v1' and 'v2'."""
-    v1_u = v1 / np.linalg.norm(v1)
-    v2_u = v2 / np.linalg.norm(v2)
-    angle_radians = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-    return np.degrees(angle_radians)
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, type, img_size=256, batch_size=16):
         self.img_size = img_size
+        self.batch_size = batch_size
         self.path = Path(path)
         assert type in ('train', 'val', 'test'), f'{type} is not train, val or test'
         self.type = type
@@ -66,161 +60,201 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                                  '008_pudding_box', '011_banana', '024_bowl', '025_mug', '036_wood_block',
                                  '037_scissors', '061_foam_brick']
         self.folders = ['0001', '0004', '0007', '0013', '0020', '0021', '0031', '0041',
-                        '0051', '0055', '0071', '0074', '0076', '0078', '0082', '0084', '0091']
+                        '0051', '0055', '0071', '0074', '0076', '0078', '0082', '0084', '0091']  # current camera setting only match images before 60
         self.data_paths = [(self.path / 'data') / subpath for subpath in self.folders]
-        self.obj_names = sorted(glob.glob(str(self.path / 'models')))
+        self.gen_paths = sorted([p for p in Path(self.path / 'YCB_objects').glob('*') if p.is_dir()])
+        self.gen_folders_names = [str(p.name) for p in self.gen_paths]
+        self.obj_names = sorted([p.name for p in Path(self.path / 'models').glob('*') if p.is_dir()])
 
         try:
-            f = []  # image files
+            f = []  # original text files
+            g = []  # generated text files
             for p in self.data_paths:
-                p = Path(p)  # os-agnostic
-                f += glob.glob(str(p / '**' / '*.*'), recursive=True)
-            self.txt_files = sorted([x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() == 'txt'])
-            assert self.txt_files, f'No text file found'
+                f += sorted(list(p.rglob('*.txt')))
+            self.txt_files = sorted(f)
+            for p in self.gen_paths:
+                g += sorted(list(p.rglob('*.txt')))
+            self.gen_txt_files = sorted(g)
+            assert self.txt_files, f'No text label file found, check your data path'
+            assert self.gen_txt_files, f'No generated text file found, check your YCB_objects path'
         except Exception as e:
             raise Exception(f'Error loading data from {path}: {e}\n')
 
         # Check cache
-        train_cache_path = Path(__file__) / 'train_data.cache'
-        test_cache_path = Path(__file__) / 'test_data.cache'
+        train_cache_path = Path(__file__).parent / 'train_data.cache'
+        test_cache_path = Path(__file__).parent / 'test_data.cache'
         try:
             train_cache = np.load(train_cache_path, allow_pickle=True).item()
             test_cache = np.load(test_cache_path, allow_pickle=True).item()
             exists = True  # load dict
-            assert train_cache['version'] == 1.0 and train_cache['hash'] == get_hash(self.txt_files)
-            assert test_cache['version'] == 1.1 and test_cache['hash'] == get_hash(self.txt_files)
+            assert (train_cache['version'] == 1.0 and
+                    train_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
+            assert (test_cache['version'] == 1.1 and
+                    test_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
         except:
             train_cache, test_cache = self.cache_labels(train_cache_path, test_cache_path)
             exists = False  # cache
 
         # Display cache
-        nf_t, nm_t, ne_t, nc_t, n_t = train_cache.pop('results')  # found, missing, empty, corrupted, total
-        nf_e, nm_e, ne_e, nc_e, n_e = test_cache.pop('results')  # found, missing, empty, corrupted, total
+        nf_o, nm_o, nf_g, nm_g, n_train, n_test = train_cache.pop('results')
+        nf_o, nm_o, nf_g, nm_g, n_train, n_test = test_cache.pop('results')
         if exists:
-            d = f"Scanning '{train_cache_path}' images and labels... {nf_t} found, {nm_t} missing, {ne_t} empty, {nc_t} corrupted"
-            tqdm(None, desc=d, total=n_t, initial=n_t)  # display cache results
-            if train_cache['msgs']:
-                logging.info('\n'.join(train_cache['msgs']))  # display warnings
-            d = f"Scanning '{test_cache_path}' images and labels... {nf_e} found, {nm_e} missing, {ne_e} empty, {nc_e} corrupted"
-            tqdm(None, desc=d, total=n_e, initial=n_e)  # display cache results
-            if test_cache['msgs']:
-                logging.info('\n'.join(test_cache['msgs']))  # display warnings
-        assert nf_t > 0, f'No labels in {train_cache_path}. Cannot train without labels.'
-        assert nf_e > 0, f'No labels in {test_cache_path}. Cannot test without labels.'
+            d = f"Scanning original images and labels... {nf_o} found, {nm_o} missing"
+            tqdm(None, desc=d, total=n_train, initial=n_train)  # display cache results
+            if train_cache['msgs_o']:
+                logging.info('\n'.join(train_cache['msgs_o']))  # display warnings
+            d = f"Scanning generated images and labels... {nf_g} found, {nm_g} missing"
+            tqdm(None, desc=d, total=n_test, initial=n_test)  # display cache results
+            if train_cache['msgs_g']:
+                logging.info('\n'.join(test_cache['msgs_g']))  # display warnings
+        assert n_train > 0, f'No labels in {train_cache_path}. Cannot train without labels.'
+        assert n_test > 0, f'No labels in {test_cache_path}. Cannot test without labels.'
 
         # Read cache
-        [train_cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
-        [test_cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
-        self.train_files = zip(*train_cache.values())
-        self.test_files = zip(*test_cache.values())
+        [train_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
+        [test_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
+        self.train_txt_files = list(train_cache.keys())
+        self.test_txt_files = list(test_cache.keys())
+        self.train_gen_files = list(train_cache.values())
+        self.test_gen_files = list(test_cache.values())
 
-        self.train_indices = range(len(self.train_files))
-        self.test_indices = range(len(self.test_files))
+        self.train_indices = range(len(self.train_txt_files))
+        self.test_indices = range(len(self.test_txt_files))
 
     def cache_labels(self, path_train=Path('./train_data.cache'), path_test=Path('./test_data.cache')):
         # Cache dataset labels, check images
         x = {}  # dict for train txt file
         y = {}  # dict for test txt file
-        nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
-        desc = f"Scanning '{path.parent / path.stem}' images and labels..."
+        nf_o, nm_o, msgs_o = 0, 0, []  # number found, corrupt, messages in original data
+        nf_g, nm_g, msgs_g = 0, 0, []  # number found, corrupt, messages in generated data
+        desc = f"Scanning YCB_Video_Dataset/YCB_objects images and labels..."
+        count = 0
         with Pool(NUM_THREADS) as pool:
-            pbar = tqdm(pool.imap_unordered(self.verify_paths, self.txt_files),
-                        desc=desc, total=len(self.txt_files))
-            for im_file, l, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
-                nm += nm_f
-                nf += nf_f
-                ne += ne_f
-                nc += nc_f
-                if im_file:
-                    x[im_file] = [l, shape, segments]
+            pbar = tqdm(pool.imap_unordered(self.verify_gen_paths, self.gen_txt_files),
+                        desc=desc, total=len(self.gen_txt_files))
+            for nf, nm, msg in pbar:
+                nf_g += nf
+                nm_g += nm
                 if msg:
-                    msgs.append(msg)
-                pbar.desc = f"{desc}{nf} found, {nm} missing, {ne} empty, {nc} corrupted"
-
+                    msgs_g.append(msg)
+                pbar.desc = f"{desc}{nf_g} found, {nm_g} corrupted"
+                count += 1
+                if count == 10:
+                    break
         pbar.close()
-        if msgs:
-            logging.info('\n'.join(msgs))
-        if nf == 0:
-            logging.info(f'WARNING: No labels found in {path}. See {HELP_URL}')
-        x['hash'] = get_hash(self.txt_files)
-        x['results'] = nf, nm, ne, nc, len(self.txt_files)
-        x['msgs'] = msgs  # warnings
+        if msgs_g:
+            logging.info('\n'.join(msgs_g))
+        count = 0
+        desc = f"Scanning YCB_Video_Dataset/data images and labels..."
+        with Pool(NUM_THREADS) as pool:
+            pbar = tqdm(pool.imap_unordered(self.verify_data_paths, self.txt_files),
+                        desc=desc, total=len(self.txt_files))
+            for txt_file, mat_file, nf, nm, msg in pbar:
+                nf_o += nf
+                nm_o += nm
+                if txt_file:
+                    mat = scipy.io.loadmat(mat_file)
+                    with open(txt_file, 'r') as f:
+                        labels = f.readlines()
+                        for num, label in enumerate(labels):
+                            obj_name = label.split(' ')[0]
+                            gen_txt_path = self.search_imgs(obj_name, np.array(mat['poses'][:3, :3, num]))
+                            if obj_name in self.train_categories:
+                                x[(txt_file / obj_name)] = gen_txt_path
+                            elif obj_name in self.test_categories:
+                                y[(txt_file / obj_name)] = gen_txt_path
+                            else:
+                                raise Exception(f'Unrecognised object name: {obj_name} \n')
+                if msg:
+                    msgs_o.append(msg)
+                pbar.desc = f"{desc}{nf_o} found, {nm_o} corrupted"
+                count += 1
+                if count == 10:
+                    break
+        pbar.close()
+        if msgs_o:
+            logging.info('\n'.join(msgs_o))
+
+        x['hash'] = get_hash(str(self.txt_files) + str(self.gen_txt_files))
+        x['results'] = nf_o, nm_o, nf_g, nm_g, len(self.txt_files), len(self.gen_txt_files)
+        x['msgs_o'] = msgs_o  # warnings
+        x['msgs_g'] = msgs_g  # warnings
         x['version'] = 1.0  # cache version
         try:
-            np.save(path, x)  # save cache for next time
-            path.with_suffix('.cache.npy').rename(path)  # remove .npy suffix
-            logging.info(f'New cache created: {path}')
+            np.save(path_train, x)  # save cache for next time
+            path_train.with_suffix('.cache.npy').rename(path_train)  # remove .npy suffix
+            logging.info(f'New cache created: {path_train}')
         except Exception as e:
-            logging.info(f'WARNING: Cache directory {path.parent} is not writeable: {e}')  # path not writeable
-        return x
+            logging.info(f'WARNING: Cache directory {path_train.parent} is not writeable: {e}')  # path not writeable
 
-    def separate_train_test(self):
-        train_files, test_files = [], []
-        for file in self.txt_files:
-            with open(file, 'r') as f:
-                labels = f.readlines()
-                for label in labels:
-                    obj_name = label.split(' ')[0]
-                    if obj_name in self.test_categories:
-                        test_files.append(file / obj_name)
-                    elif obj_name in self.train_categories:
-                        train_files.append(file / obj_name)
-                    else:
-                        raise Exception(f'Unrecognised object name: {obj_name} \n')
-        return train_files, test_files
-
-    def verify_paths(self):
-        # Verify one image-label pair
-        im_file, lb_file, prefix = args
-        nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, corrupt
+        y['hash'] = get_hash(str(self.txt_files) + str(self.gen_txt_files))
+        y['results'] = nf_o, nm_o, nf_g, nm_g, len(self.txt_files), len(self.gen_txt_files)
+        y['msgs_o'] = msgs_o  # warnings
+        y['msgs_g'] = msgs_g  # warnings
+        y['version'] = 1.1  # cache version
         try:
-            # verify images
-            im = Image.open(im_file)
-            im.verify()  # PIL verify
-            shape = exif_size(im)  # image size
-            assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
-            assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
-            if im.format.lower() in ('jpg', 'jpeg'):
-                with open(im_file, 'rb') as f:
-                    f.seek(-2, 2)
-                    assert f.read() == b'\xff\xd9', 'corrupted JPEG'
-
-            # verify labels
-            segments = []  # instance segments
-            if os.path.isfile(lb_file):
-                nf = 1  # label found
-                with open(lb_file, 'r') as f:
-                    l = [x.split() for x in f.read().strip().splitlines() if len(x)]
-                    if any([len(x) > 8 for x in l]):  # is segment
-                        classes = np.array([x[0] for x in l], dtype=np.float32)
-                        segments = np.array([x[1:5] for x in l], dtype=np.float32)  # (cls, xy1...)
-                        # segments = [np.array(x[1:5], dtype=np.float32).reshape(-1, 2) for x in l]  # (cls, xy1...)
-                        attributes = np.array([x[5:] for x in l], dtype=np.float32)
-                        l = np.concatenate((classes.reshape(-1, 1), segments, attributes), 1)  # (cls, xywh)
-                        # l = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments), attributes), 1)  # (cls, xywh)
-                    l = np.array(l, dtype=np.float32)
-                if len(l):
-                    assert l.shape[1] == 21, 'labels require 21 columns each'
-                    assert (l >= 0).all(), 'negative labels'
-                    assert (l[:, 1:] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
-                    assert np.unique(l, axis=0).shape[0] == l.shape[0], 'duplicate labels'
-                else:
-                    ne = 1  # label empty
-                    l = np.zeros((0, 5), dtype=np.float32)
-            else:
-                nm = 1  # label missing
-                l = np.zeros((0, 5), dtype=np.float32)
-            return im_file, l, shape, segments, nm, nf, ne, nc, ''
+            np.save(path_test, y)  # save cache for next time
+            path_test.with_suffix('.cache.npy').rename(path_test)  # remove .npy suffix
+            logging.info(f'New cache created: {path_test}')
         except Exception as e:
-            nc = 1
-            msg = f'{prefix}WARNING: Ignoring corrupted image and/or label {im_file}: {e}'
-            return [None, None, None, None, nm, nf, ne, nc, msg]
+            logging.info(f'WARNING: Cache directory {path_test.parent} is not writeable: {e}')  # path not writeable
+
+        return x, y
+
+    def verify_gen_paths(self, file_path):
+        file_path = Path(file_path)
+        color_img_path = file_path.parent / (file_path.name.split('-')[0] + '-color.png')
+        depth_img_path = file_path.parent / (file_path.name.split('-')[0] + '-depth.png')
+        nf, nm, msg = 0, 0, []  # number found, missing
+        if os.path.isfile(file_path) and os.path.isfile(color_img_path) and os.path.isfile(depth_img_path):
+            nf = 1
+        else:
+            nm = 1
+            if not os.path.isfile(file_path):
+                warnings.warn('txt file missing', UserWarning)
+            if not os.path.isfile(color_img_path):
+                warnings.warn('color image file missing', UserWarning)
+            if not os.path.isfile(depth_img_path):
+                warnings.warn('depth image file missing', UserWarning)
+            msg = f'WARNING: Ignoring corrupted image and/or label {file_path}'
+        return nf, nm, msg
+
+    def verify_data_paths(self, file_path):
+        base_name = file_path.name.split('-')[0]
+        # Create the new file name
+        color_img_path = file_path.parent / (base_name + '-color.png')
+        depth_img_path = file_path.parent / (base_name + '-depth.png')
+        label_img_path = file_path.parent / (base_name + '-label.png')
+        metad_file_path = file_path.parent / (base_name + '-meta.mat')
+        # Verify one image-label pair
+        nf, nm, msg = 0, 0, []  # number found, missing
+        if os.path.isfile(file_path) and os.path.isfile(color_img_path) and os.path.isfile(depth_img_path) \
+                and os.path.isfile(label_img_path) and os.path.isfile(metad_file_path):
+            nf = 1
+        else:
+            nm = 1
+            if not os.path.isfile(file_path):
+                warnings.warn('txt file missing', UserWarning)
+            if not os.path.isfile(color_img_path):
+                warnings.warn('color image file missing', UserWarning)
+            if not os.path.isfile(depth_img_path):
+                warnings.warn('depth image file missing', UserWarning)
+            if not os.path.isfile(label_img_path):
+                warnings.warn('label image file missing', UserWarning)
+            if not os.path.isfile(metad_file_path):
+                warnings.warn('matlab mat file missing', UserWarning)
+            msg = f'WARNING: Ignoring corrupted image and/or label {file_path}'
+
+        if nf:
+            return file_path, metad_file_path, nf, nm, msg
+        else:
+            return None, None, nf, nm, msg
 
     def __len__(self):
-        return len(self.train_files) if self.type == 'train' else len(self.test_files)
+        return len(self.train_txt_files) if self.type == 'train' else len(self.test_gen_files)
 
     def __getitem__(self, index):
-        index = self.indices[index]  # linear, shuffled, or image_weights
+        index = self.train_indices[index] if self.type == 'train' else self.test_indices[index]
 
         # Load image
         c_ori, d_ori, p_ori, t_p, c_gen, d_gen, p_gen, gt_p, c_neg, d_neg, nt_p, obj_name = self.load_image(index)
@@ -255,53 +289,48 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         return c_ori, d_ori, p_ori, t_p, c_gen, d_gen, p_gen, gt_p, c_neg, d_neg, nt_p, obj_name
 
-    @staticmethod
-    def collate_fn(batch):
-        img, label, path, shapes = zip(*batch)  # transposed
-        for i, l in enumerate(label):
-            l[:, 0] = i  # add target image index for build_targets()
-        return torch.stack(img, 0), torch.cat(label, 0), path, shapes
-
     def load_image(self, i):
         # loads 1 image from dataset index 'i', returns im, original hw, resized hw
-        text = self.train_files[i] if self.type == 'train' else self.test_files[i]
-        obj_name = Path(text).name
-        txt_path = Path(text).parent
-        base_name = txt_path.stem.split('-')[0]
+        txt_path_obj = self.train_txt_files[i] if self.type == 'train' else self.test_txt_files[i]
+        obj_name = txt_path_obj.name
+        txt_path = txt_path_obj.parent
+        base_name = txt_path.name.split('-')[0]
         # Create the new file name
-        color_img_path = base_name + '-color.png'
-        depth_img_path = base_name + '-depth.png'
-        label_img_path = base_name + '-label.png'
-        mat_file_path = base_name + '-meta.mat'
+        color_img_path = txt_path.parent / (base_name + '-color.png')
+        depth_img_path = txt_path.parent / (base_name + '-depth.png')
+        label_img_path = txt_path.parent / (base_name + '-label.png')
+        metad_file_path = txt_path.parent / (base_name + '-meta.mat')
         color_image = np.array(Image.open(color_img_path))
         depth_image = np.array(Image.open(depth_img_path))
         label_image = np.array(Image.open(label_img_path))
-        mat = scipy.io.loadmat(mat_file_path)
-        obj_index = mat['cls_indexs'].index(self.obj_names.index(obj_name))
+        mat = scipy.io.loadmat(metad_file_path)
+        obj_num = self.obj_names.index(obj_name) + 1  # starts from 1
+        obj_index = list(mat['cls_indexes']).index(obj_num)
         pose_ori = np.array(mat['poses'][:3, :, obj_index])
 
-        isolated_mask = (label_image == self.obj_names.index(obj_name))
-        color_isolated = self.isolate_image(color_image, isolated_mask, text)
-        depth_isolated = self.isolate_image(depth_image, isolated_mask, text)
+        isolated_mask = (label_image == obj_num)
+        color_isolated = self.isolate_image(color_image, isolated_mask, color_img_path)
+        depth_isolated = self.isolate_image(depth_image, isolated_mask, depth_img_path)
 
-        pose_gen, color_gen, depth_gen, gen_txt_path = self.search_imgs(obj_name, pose_ori)
+        gen_txt_path = self.train_gen_files[i] if self.type == 'train' else self.test_gen_files[i]
+        color_img_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-color.png')
+        depth_img_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-depth.png')
+        pose_gen = np.loadtxt(gen_txt_path)[:3, :]
+        color_gen = np.array(Image.open(color_img_path))
+        depth_gen = np.array(Image.open(depth_img_path))
 
         neg_color, neg_depth, neg_txt_path = self.get_negative_imgs(obj_name)
 
-        return (color_isolated, depth_isolated, pose_ori, txt_path, color_gen, depth_gen, pose_gen,
-                gen_txt_path, neg_color, neg_depth, neg_txt_path, obj_name)
+        return (color_isolated, depth_isolated, pose_ori, str(txt_path), color_gen, depth_gen, pose_gen,
+                str(gen_txt_path), neg_color, neg_depth, str(neg_txt_path), obj_name)
 
     def search_imgs(self, obj_name, pose_ori):
-        files = sorted(os.listdir(self.path / 'YCB_objects' / obj_name))
-        # Filter out files that end with '.txt'
-        txt_files = [file for file in files if file.endswith('.txt')]
-
+        txt_files = [p for p in self.gen_txt_files if obj_name in str(p)]
         # Find the closest pose
         tmp = [1000, 1000, 1000]
-        angle_diff = [0, 0, 0]
         file = ''
         for txt in txt_files:
-            pose_gen = np.loadtxt(Path(self.path / 'YCB_objects' / obj_name / txt))[:3, :3]
+            pose_gen = np.loadtxt(txt)[:3, :3]
             angle_diff = [angle_between_vectors(pose_ori[0, :], pose_gen[0, :]),
                           angle_between_vectors(pose_ori[1, :], pose_gen[1, :]),
                           angle_between_vectors(pose_ori[2, :], pose_gen[2, :])]
@@ -309,46 +338,37 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             if np.abs(angle_diff[2]) < np.abs(tmp[2]):
                 tmp = angle_diff
                 file = txt
-        gen_txt_path = Path(self.path / 'YCB_objects' / obj_name / file)
-        color_img_path = gen_txt_path.stem.split('-')[0] + '-color.png'
-        depth_img_path = gen_txt_path.stem.split('-')[0] + '-depth.png'
-        pose_gen = np.loadtxt(gen_txt_path)[:3, :]
-        color_gen = np.array(Image.open(color_img_path))
-        depth_gen = np.array(Image.open(depth_img_path))
-        return pose_gen, color_gen, depth_gen, gen_txt_path
+        return file
 
     def get_negative_imgs(self, obj_name):
-        files = sorted(os.listdir(self.path / 'YCB_objects'))
+        files = self.gen_folders_names.copy()
         files.remove(obj_name)
         neg_obj = random.choice(files)
-        neg_files = sorted(os.listdir(self.path / 'YCB_objects' / neg_obj))
+        txt_files = sorted((self.path / 'YCB_objects' / neg_obj).rglob('*.txt'))
         # Filter out files that end with '.txt'
-        txt_files = [file for file in neg_files if file.endswith('.txt')]
         neg_file = random.choice(txt_files)
-        neg_txt_path = Path(self.path / 'YCB_objects' / neg_obj / neg_file)
-        neg_color_img_path = neg_txt_path.stem.split('-')[0] + '-color.png'
-        neg_depth_img_path = neg_txt_path.stem.split('-')[0] + '-depth.png'
+        neg_txt_path = self.path / 'YCB_objects' / neg_obj / neg_file
+        neg_color_img_path = neg_txt_path.parent / (neg_txt_path.name.split('-')[0] + '-color.png')
+        neg_depth_img_path = neg_txt_path.parent / (neg_txt_path.name.split('-')[0] + '-depth.png')
         neg_color_gen = np.array(Image.open(neg_color_img_path))
         neg_depth_gen = np.array(Image.open(neg_depth_img_path))
 
         return neg_color_gen, neg_depth_gen, neg_txt_path
 
-    def isolate_image(self, input_img, mask, text):
+    def isolate_image(self, input_img, mask, img_file):
         if input_img.ndim == 2:  # depth image
             # Create a new 256x256 numpy array filled with 0
-            background = np.full((256, 256), 0, dtype=input_img.dtype)
+            background = np.zeros((self.img_size, self.img_size))
             # Use the mask to find the ROI in the color image
             # This creates a masked version of the image where unmasked areas are set to 0
             masked_image = input_img * mask
 
         else:  # color image
-            # Create a new 256x256x3 numpy array filled with 70
-            background = np.full((256, 256, 3), 70, dtype=input_img.dtype)
+            # Create a new 256x256x3 numpy array filled with 0
+            background = np.zeros((self.img_size, self.img_size, 3))
             # Use the mask to find the ROI in the color image
             # This creates a masked version of the image where unmasked areas are set to 0
-            masked_image = np.zeros_like(input_img)
-            for i in range(3):  # color_image has 3 channels
-                masked_image[:, :, i] = input_img[:, :, i] * mask
+            masked_image = input_img * np.expand_dims(mask, axis=-1)
 
         # Find the bounding box of the masked area to extract only the relevant part
         rows = np.any(mask, axis=1)
@@ -361,8 +381,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Calculate where to place the ROI in the center of the background
         roi_height, roi_width = roi.shape[:2]
-        start_x = (256 - roi_width) // 2
-        start_y = (256 - roi_height) // 2
+        start_x = (self.img_size - roi_width) // 2
+        start_y = (self.img_size - roi_height) // 2
 
         # Ensure that the ROI does not exceed background dimensions
         end_x = start_x + roi_width
@@ -380,13 +400,22 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         try:
             # Adjust ROI size if it's larger than the background
-            roi = roi[:end_y - start_y, :end_x - start_x]
+            # roi = roi[:end_y - start_y, :end_x - start_x]
             # Copy the ROI into the center of the background
-            background[start_y:end_y, start_x:end_x, :] = roi
+            if input_img.ndim == 2:
+                background[start_y:end_y, start_x:end_x] = roi
+            else:
+                background[start_y:end_y, start_x:end_x, :] = roi
         except Exception as e:
-            raise Exception(f'Error isolating the image {text}: {e}\n')
+            raise Exception(f'Error isolating the image {img_file}: {e}\n')
         return background
 
+def angle_between_vectors(v1, v2):
+    """Calculate the angle in degrees between vectors 'v1' and 'v2'."""
+    v1_u = v1 / np.linalg.norm(v1)
+    v2_u = v2 / np.linalg.norm(v2)
+    angle_radians = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+    return np.degrees(angle_radians)
 
 def create_folder(path='./new'):
     # Create folder
