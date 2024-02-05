@@ -178,8 +178,8 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
         # reset the scene (clear the camera and light)
         bproc.utility.reset_keyframes()
 
+        padded_num = "{:04d}".format(num)
         with h5py.File(os.path.join(save_path, str(num), '0.hdf5'), 'r') as h5f:
-            padded_num = "{:04d}".format(num)
             colours = np.array(h5f["colors"])[..., ::-1].copy()
             with open(os.path.join(save_path, f'{padded_num}-depth.png'), 'wb') as im:
                 depth_original = np.array(h5f["depth"])
@@ -189,8 +189,8 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
                 writer.write(im, depth_enlarged.astype(np.int16))
                 masked_img = colours * np.expand_dims(mask, axis=-1)
                 cv2.imwrite(os.path.join(save_path, f'{padded_num}-color.png'), masked_img)
-            with open(os.path.join(save_path, f'{padded_num}-matrix.txt'), 'wb') as dat:
-                np.savetxt(dat, cam2world_matrix)
+        with open(os.path.join(save_path, f'{padded_num}-matrix.txt'), 'wb') as dat:
+            np.savetxt(dat, obj_matrix)
         shutil.rmtree(os.path.join(save_path, str(num)))
 
 
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     for obj_path, diag_l in zip(paths, np.float64(diags)):
         print(obj_path, diag_l)
         # create an output folder for each object model
-        save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'YCB_objects')
+        save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'YCB_objectst')
         # render image for each view point
         render(obj_path, diag_l, save_path, first_execution_flag)
         first_execution_flag = False

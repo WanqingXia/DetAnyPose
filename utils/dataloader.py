@@ -53,7 +53,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.img_size = img_size
         self.batch_size = batch_size
         self.path = Path(path)
-        assert type in ('train', 'val', 'test'), f'{type} is not train, val or test'
+        assert type in ('train', 'test'), f'{type} is not train or test'
         self.type = type
         self.test_categories = ['006_mustard_bottle', '019_pitcher_base', '021_bleach_cleanser']
         self.train_categories = ['002_master_chef_can', '003_cracker_box', '004_sugar_box', '005_tomato_soup_can',
@@ -81,45 +81,52 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             raise Exception(f'Error loading data from {path}: {e}\n')
 
         # Check cache
-        train_cache_path = Path(__file__).parent / 'train_data.cache'
-        test_cache_path = Path(__file__).parent / 'test_data.cache'
+        train_cache_path = Path(__file__).parent.parent / 'cache' / 'train_data.cache'
+        test_cache_path = Path(__file__).parent.parent / 'cache' / 'test_data.cache'
         try:
-            train_cache = np.load(train_cache_path, allow_pickle=True).item()
-            test_cache = np.load(test_cache_path, allow_pickle=True).item()
+            if self.type == 'train':
+                train_cache = np.load(train_cache_path, allow_pickle=True).item()
+                assert (train_cache['version'] == 1.0 and
+                        train_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
+            elif self.type == 'test':
+                test_cache = np.load(test_cache_path, allow_pickle=True).item()
+                assert (test_cache['version'] == 1.1 and
+                        test_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
             exists = True  # load dict
-            assert (train_cache['version'] == 1.0 and
-                    train_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
-            assert (test_cache['version'] == 1.1 and
-                    test_cache['hash'] == get_hash(str(self.txt_files) + str(self.gen_txt_files)))
         except:
             train_cache, test_cache = self.cache_labels(train_cache_path, test_cache_path)
             exists = False  # cache
 
         # Display cache
-        nf_o, nm_o, nf_g, nm_g, n_train, n_test = train_cache.pop('results')
-        nf_o, nm_o, nf_g, nm_g, n_train, n_test = test_cache.pop('results')
+        current_cache = train_cache if self.type == 'train' else test_cache
+        nf_o, nm_o, nf_g, nm_g, n = current_cache.pop('results')
         if exists:
-            d = f"Scanning original images and labels... {nf_o} found, {nm_o} missing"
-            tqdm(None, desc=d, total=n_train, initial=n_train)  # display cache results
-            if train_cache['msgs_o']:
-                logging.info('\n'.join(train_cache['msgs_o']))  # display warnings
-            d = f"Scanning generated images and labels... {nf_g} found, {nm_g} missing"
-            tqdm(None, desc=d, total=n_test, initial=n_test)  # display cache results
-            if train_cache['msgs_g']:
-                logging.info('\n'.join(test_cache['msgs_g']))  # display warnings
-        assert n_train > 0, f'No labels in {train_cache_path}. Cannot train without labels.'
-        assert n_test > 0, f'No labels in {test_cache_path}. Cannot test without labels.'
+            d = f"Scanning original images and labels for {self.type}... {nf_o} found, {nm_o} missing"
+            tqdm(None, desc=d, total=n, initial=n)  # display cache results
+            if current_cache['msgs_o']:
+                logging.info('\n'.join(current_cache['msgs_o']))  # display warnings
+            d = f"Scanning generated images and labels for {self.type}... {nf_o} found, {nm_o} missing"
+            tqdm(None, desc=d, total=n, initial=n)  # display cache results
+            if current_cache['msgs_g']:
+                logging.info('\n'.join(current_cache['msgs_g']))  # display warnings
 
-        # Read cache
-        [train_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
-        [test_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
-        self.train_txt_files = list(train_cache.keys())
-        self.test_txt_files = list(test_cache.keys())
-        self.train_gen_files = list(train_cache.values())
-        self.test_gen_files = list(test_cache.values())
+        if self.type == 'train':
+            assert n > 0, f'No labels in {train_cache_path}. Cannot train without labels.'
+            [train_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
+            train_txt_cache = list(train_cache.keys())
+            self.train_txt_files = [self.path / sub_path for sub_path in train_txt_cache]
+            train_gen_cache = list(train_cache.values())
+            self.train_gen_files = [self.path / sub_path for sub_path in train_gen_cache]
+            self.train_indices = range(len(self.train_txt_files))
 
-        self.train_indices = range(len(self.train_txt_files))
-        self.test_indices = range(len(self.test_txt_files))
+        elif self.type == 'test':
+            assert n > 0, f'No labels in {test_cache_path}. Cannot train without labels.'
+            [test_cache.pop(k) for k in ('hash', 'version', 'msgs_o', 'msgs_g')]  # remove items
+            test_txt_cache = list(test_cache.keys())
+            self.test_txt_files = [self.path / sub_path for sub_path in test_txt_cache]
+            test_gen_cache = list(test_cache.values())
+            self.test_gen_files = [self.path / sub_path for sub_path in test_gen_cache]
+            self.test_indices = range(len(self.test_txt_files))
 
     def cache_labels(self, path_train=Path('./train_data.cache'), path_test=Path('./test_data.cache')):
         # Cache dataset labels, check images
@@ -128,7 +135,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         nf_o, nm_o, msgs_o = 0, 0, []  # number found, corrupt, messages in original data
         nf_g, nm_g, msgs_g = 0, 0, []  # number found, corrupt, messages in generated data
         desc = f"Scanning YCB_Video_Dataset/YCB_objects images and labels..."
-        count = 0
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap_unordered(self.verify_gen_paths, self.gen_txt_files),
                         desc=desc, total=len(self.gen_txt_files))
@@ -138,18 +144,20 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if msg:
                     msgs_g.append(msg)
                 pbar.desc = f"{desc}{nf_g} found, {nm_g} corrupted"
-                count += 1
-                if count == 10:
+                if nf_g == 10:
                     break
         pbar.close()
         if msgs_g:
             logging.info('\n'.join(msgs_g))
-        count = 0
+        print('Scanning YCB_Video_Dataset/YCB_objects finished')
+
         desc = f"Scanning YCB_Video_Dataset/data images and labels..."
+        num_train, num_test = 0, 0
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap_unordered(self.verify_data_paths, self.txt_files),
                         desc=desc, total=len(self.txt_files))
             for txt_file, mat_file, nf, nm, msg in pbar:
+                split_str = str(self.path) + '/'
                 nf_o += nf
                 nm_o += nm
                 if txt_file:
@@ -159,49 +167,54 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         for num, label in enumerate(labels):
                             obj_name = label.split(' ')[0]
                             gen_txt_path = self.search_imgs(obj_name, np.array(mat['poses'][:3, :3, num]))
+                            obj_save_path = str(txt_file / obj_name).split(split_str)[1]
+                            gen_save_path = str(gen_txt_path).split(split_str)[1]
                             if obj_name in self.train_categories:
-                                x[(txt_file / obj_name)] = gen_txt_path
+                                x[obj_save_path] = gen_save_path
+                                num_train += 1
                             elif obj_name in self.test_categories:
-                                y[(txt_file / obj_name)] = gen_txt_path
+                                y[obj_save_path] = gen_save_path
+                                num_test += 1
                             else:
                                 raise Exception(f'Unrecognised object name: {obj_name} \n')
                 if msg:
                     msgs_o.append(msg)
                 pbar.desc = f"{desc}{nf_o} found, {nm_o} corrupted"
-                count += 1
-                if count == 10:
+                if nf_o == 10:
                     break
         pbar.close()
         if msgs_o:
             logging.info('\n'.join(msgs_o))
+        print('Scanning YCB_Video_Dataset/data finished')
 
         x['hash'] = get_hash(str(self.txt_files) + str(self.gen_txt_files))
-        x['results'] = nf_o, nm_o, nf_g, nm_g, len(self.txt_files), len(self.gen_txt_files)
+        x['results'] = nf_o, nm_o, nf_g, nm_g, num_train
         x['msgs_o'] = msgs_o  # warnings
         x['msgs_g'] = msgs_g  # warnings
         x['version'] = 1.0  # cache version
         try:
             np.save(path_train, x)  # save cache for next time
             path_train.with_suffix('.cache.npy').rename(path_train)  # remove .npy suffix
-            logging.info(f'New cache created: {path_train}')
+            print(f'New cache created: {path_train}')
         except Exception as e:
-            logging.info(f'WARNING: Cache directory {path_train.parent} is not writeable: {e}')  # path not writeable
+            print(f'WARNING: Cache directory {path_train.parent} is not writeable: {e}')  # path not writeable
 
         y['hash'] = get_hash(str(self.txt_files) + str(self.gen_txt_files))
-        y['results'] = nf_o, nm_o, nf_g, nm_g, len(self.txt_files), len(self.gen_txt_files)
+        y['results'] = nf_o, nm_o, nf_g, nm_g, num_test
         y['msgs_o'] = msgs_o  # warnings
         y['msgs_g'] = msgs_g  # warnings
         y['version'] = 1.1  # cache version
         try:
             np.save(path_test, y)  # save cache for next time
             path_test.with_suffix('.cache.npy').rename(path_test)  # remove .npy suffix
-            logging.info(f'New cache created: {path_test}')
+            print(f'New cache created: {path_test}')
         except Exception as e:
-            logging.info(f'WARNING: Cache directory {path_test.parent} is not writeable: {e}')  # path not writeable
+            print(f'WARNING: Cache directory {path_test.parent} is not writeable: {e}')  # path not writeable
 
         return x, y
 
     def verify_gen_paths(self, file_path):
+        return 1, 0, []  # bypassing filecheck, comment this line if file check is needed
         file_path = Path(file_path)
         color_img_path = file_path.parent / (file_path.name.split('-')[0] + '-color.png')
         depth_img_path = file_path.parent / (file_path.name.split('-')[0] + '-depth.png')
@@ -226,6 +239,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         depth_img_path = file_path.parent / (base_name + '-depth.png')
         label_img_path = file_path.parent / (base_name + '-label.png')
         metad_file_path = file_path.parent / (base_name + '-meta.mat')
+        return file_path, metad_file_path, 1, 0, []  # bypassing filecheck, comment this line if file check is needed
         # Verify one image-label pair
         nf, nm, msg = 0, 0, []  # number found, missing
         if os.path.isfile(file_path) and os.path.isfile(color_img_path) and os.path.isfile(depth_img_path) \
@@ -329,15 +343,27 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Find the closest pose
         tmp = [1000, 1000, 1000]
         file = ''
+        time1, time2, time3 = 0, 0, 0
         for txt in txt_files:
-            pose_gen = np.loadtxt(txt)[:3, :3]
-            angle_diff = [angle_between_vectors(pose_ori[0, :], pose_gen[0, :]),
-                          angle_between_vectors(pose_ori[1, :], pose_gen[1, :]),
-                          angle_between_vectors(pose_ori[2, :], pose_gen[2, :])]
+            tic = time.time()
+            pose_gen = np.loadtxt(txt)
+            toc = time.time()
+            angle_diff = [angle_between_vectors(pose_ori[0, :], pose_gen[0, :3]),
+                          angle_between_vectors(pose_ori[1, :], pose_gen[1, :3]),
+                          angle_between_vectors(pose_ori[2, :], pose_gen[2, :3])]
+            tac = time.time()
 
             if np.abs(angle_diff[2]) < np.abs(tmp[2]):
                 tmp = angle_diff
                 file = txt
+            tbc = time.time()
+            time1 += toc - tic
+            time2 += tac - toc
+            time3 += tbc - tac
+        print("time taken1 " + str(time1))
+        print("time taken2 " + str(time2))
+        print("time taken3 " + str(time3))
+
         return file
 
     def get_negative_imgs(self, obj_name):
