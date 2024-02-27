@@ -4,6 +4,9 @@ import os
 import random
 import zipfile
 
+import time
+from datetime import datetime
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
@@ -15,7 +18,7 @@ from torchvision import transforms
 from tqdm import tqdm
 from torch.nn.modules.distance import PairwiseDistance
 
-from utils.dataloader import create_dataloader
+from utils.dataloader import create_dataloader, create_folder
 from losses.triplet_loss import TripletLoss
 from models.simple_vit import SimpleViT
 
@@ -62,10 +65,11 @@ def forward_pass(imgs, model, batch_size):
 def train():
     # Define hyperparameter
     dataroot = '/media/iai-lab/wanqing/YCB_Video_Dataset'
+    save_root = Path('./results')
     epochs = 20
     embedding_dimension = 512
     batch_size = 64
-    num_workers = 8
+    num_workers = 36
     learning_rate = 3e-5
     margin = 0.2
     image_size = 256
@@ -75,6 +79,10 @@ def train():
 
     # Define seed for whole training
     seed_everything(seed)
+
+    # Format the current date and time to be accurate to minutes, excluding the year
+    formatted_now = datetime.now().strftime("%m-%d_%H:%M")
+    save_path = create_folder(save_root / formatted_now)
 
     # Define ViT model
     model = SimpleViT(
@@ -96,26 +104,25 @@ def train():
     # scheduler
     scheduler = StepLR(optimizer, step_size=1, gamma=gamma)
 
-    train_transforms = transforms.Compose(
-        [
-            transforms.Resize((224, 224)),
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-        ]
-    )
+    train_loader, train_set = create_dataloader(dataroot,
+                                                type='train',
+                                                imgsz=image_size,
+                                                batch_size=batch_size,
+                                                workers=num_workers)
 
-    for epoch in tqdm(range(start_epoch, epochs)):
+    for epoch in range(start_epoch, epochs):
         epoch_loss = 0
-
-        train_loader = create_dataloader(dataset="train", batch_size=batch_size, shuffle=True)
-        valid_loader = create_dataloader(dataset="val", batch_size=batch_size, shuffle=True)
-
-        for data in tqdm(train_loader):
+        tic = time.time()
+        for batch_train, train_data in enumerate(tqdm(train_loader, total=len(train_loader),
+                                                 desc=f'Training, iteration {epoch} out of {epochs}')):
+            toc = time.time()
+            print("loading data taking time {}".format(toc - tic))
             l2_distance = PairwiseDistance(p=2)
 
+            concatenated_data = torch.cat((train_data[0], train_data[4], train_data[8]), dim=0)
+
             anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
-                imgs=data,
+                imgs=concatenated_data,
                 model=model,
                 batch_size=batch_size
             )
@@ -141,15 +148,20 @@ def train():
             optimizer.zero_grad()
             triplet_loss.backward()
             optimizer.step()
+            tac = time.time()
+            print("Training data taking time {}".format(tac - toc))
 
             epoch_loss += triplet_loss / len(train_loader)
 
         with torch.no_grad():
             epoch_val_loss = 0
-            for data in valid_loader:
+            val_iteration_limit = 100
+            for batch_val, val_data in enumerate(tqdm(train_loader, total=val_iteration_limit,
+                                                 desc=f'Validating, iteration {epoch} out of {epochs}')):
+                concatenated_data = torch.cat((val_data[0], val_data[4], val_data[8]), dim=0)
 
                 anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
-                    imgs=data,
+                    imgs=concatenated_data,
                     model=model,
                     batch_size=batch_size
                 )
@@ -160,7 +172,25 @@ def train():
                     neg=neg_embeddings
                 )
 
-                epoch_val_loss += val_loss / len(valid_loader)
+                epoch_val_loss += val_loss / val_iteration_limit
+                if batch_val == val_iteration_limit - 1:
+                    break
+
+        # Save model checkpoint
+        state = {
+            'epoch': epoch,
+            'embedding_dimension': embedding_dimension,
+            'batch_size_training': batch_size,
+            'model_state_dict': model.state_dict(),
+            'optimizer_model_state_dict': optimizer.state_dict(),
+            'train_loss': np.mean(epoch_loss),
+            'cal_loss': np.mean(epoch_val_loss)
+        }
+        if gpu_flag:
+            state['model_state_dict'] = model.module.state_dict()
+
+        # Save model checkpoint
+        torch.save(state, save_path / 'triplet_epoch_{}.pt'.format(epoch))
 
 
 if __name__ == '__main__':

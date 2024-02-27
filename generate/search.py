@@ -18,14 +18,14 @@ def angle_between_vectors(v1, v2):
     return np.degrees(angle_radians)
 
 # Load the pose from YCB video dataset
-txt = open('/media/wanqing/wanqing/YCB_Video_Dataset/data/0001/000006-box.txt', 'r')
+txt = open('/media/iai-lab/wanqing/YCB_Video_Dataset/data/0001/000006-box.txt', 'r')
 cont = txt.readlines()
-mat = scipy.io.loadmat('/media/wanqing/wanqing/YCB_Video_Dataset/data/0001/000002-meta.mat')
+mat = scipy.io.loadmat('/media/iai-lab/wanqing/YCB_Video_Dataset/data/0001/000006-meta.mat')
 data = mat['poses']
 rotation_matrix_ori = np.array(data[:3, :3, 2])
 
 # Select the folder by filename
-dir = '/media/wanqing/wanqing/YCB_Video_Dataset/YCB_objects/004_sugar_box'
+dir = '/media/iai-lab/wanqing/YCB_Video_Dataset/YCB_objects/004_sugar_box'
 # List all files in the directory
 files = sorted(os.listdir(dir))
 # Filter out files that end with '.txt'

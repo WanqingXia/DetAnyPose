@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-dataroot = '/media/wanqing/wanqing/YCB_Video_Dataset'
+dataroot = '/media/iai-lab/wanqing/YCB_Video_Dataset'
 train_loader, train_set = create_dataloader(dataroot, type='train', imgsz=256, batch_size=8, workers=8)
 test_loader, test_set = create_dataloader(dataroot, type='test', imgsz=256, batch_size=8, workers=8)
 
@@ -34,5 +34,5 @@ for data1, data2 in tqdm(zip(train_loader, test_loader)):
         if i == 9:
             stop = 1
 
-    stop = 1
+stop = 1
 
