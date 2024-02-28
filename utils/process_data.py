@@ -38,8 +38,9 @@ def angle_between_vectors(v1, v2):
 def create_folder(path):
     # Create folder
     if os.path.exists(path):
-        shutil.rmtree(path)  # delete output folder
-    os.makedirs(path)  # make new output folder
+        pass  # delete output folder
+    else:
+        os.makedirs(path)  # make new output folder
     return path
 
 class Process:
@@ -89,13 +90,32 @@ class Process:
         train_cache_path = Path(__file__).parent.parent / 'cache' / 'train.cache'
         test_cache_path = Path(__file__).parent.parent / 'cache' / 'test.cache'
         self.train_save, self.test_save = [], []
-        for ori, gen in tqdm(self.train_data.items(), desc="Processing training data", total=len(self.train_data)):
-            self.train_save.append(self.allocate_data(ori, gen, self.train_data_path))
-        np.save(train_cache_path, self.train_save)  # save cache for next time
+
+        workers = 18  # Number of workers, maxed at the number of threads or the dataset size
+        # Process training data
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Prepare data for processing
+            train_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())]
+            # Process data in parallel
+            futures = [executor.submit(self.allocate_data, ori, gen, self.train_data_path) for ori, gen in train_tasks]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing training data"):
+                result = future.result()
+                self.train_save.append(result)
+
+        # Save processed training data
+        np.save(train_cache_path, self.train_save)
         train_cache_path.with_suffix('.cache.npy').rename(train_cache_path)  # remove .npy suffix
-        for ori, gen in tqdm(self.test_data.items(), desc="Processing testing data", total=len(self.test_data)):
-            self.test_save.append(self.allocate_data(ori, gen, self.test_data_path))
-        np.save(test_cache_path, self.test_save)  # save cache for next time
+
+        # Repeat the process for test data
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            test_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())]
+            futures = [executor.submit(self.allocate_data, ori, gen, self.test_data_path) for ori, gen in test_tasks]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing testing data"):
+                result = future.result()
+                self.train_save.append(result)
+
+        # Save processed testing data
+        np.save(test_cache_path, self.test_save)
         test_cache_path.with_suffix('.cache.npy').rename(test_cache_path)  # remove .npy suffix
 
     def process_images(self):
