@@ -18,7 +18,8 @@ from torchvision import transforms
 from tqdm import tqdm
 from torch.nn.modules.distance import PairwiseDistance
 
-from utils.dataloader import create_dataloader, create_folder
+from utils.dataloader import create_dataloader
+from utils.process_data import create_folder
 from losses.triplet_loss import TripletLoss
 from models.simple_vit import SimpleViT
 
@@ -64,13 +65,13 @@ def forward_pass(imgs, model, batch_size):
 
 def train():
     # Define hyperparameter
-    dataroot = '/media/iai-lab/wanqing/YCB_Video_Dataset'
+    dataroot = '/home/iai-lab/Documents/YCB_Video_Dataset'
     save_root = Path('./results')
     epochs = 20
     embedding_dimension = 512
     batch_size = 64
     num_workers = 36
-    learning_rate = 3e-5
+    learning_rate = 1e-3
     margin = 0.2
     image_size = 256
     start_epoch = 0
@@ -112,53 +113,51 @@ def train():
 
     for epoch in range(start_epoch, epochs):
         epoch_loss = 0
-        tic = time.time()
-        for batch_train, train_data in enumerate(tqdm(train_loader, total=len(train_loader),
-                                                 desc=f'Training, iteration {epoch} out of {epochs}')):
-            toc = time.time()
-            print("loading data taking time {}".format(toc - tic))
+        for batch_train, train_data in tqdm(enumerate(train_loader), total=min(1000, len(train_loader)),
+                                                 desc=f'Training, iteration {epoch+1} out of {epochs}'):
             l2_distance = PairwiseDistance(p=2)
-
-            concatenated_data = torch.cat((train_data[0], train_data[4], train_data[8]), dim=0)
+            concatenated_data = torch.cat((train_data[0], train_data[1], train_data[2]), dim=0)
 
             anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
                 imgs=concatenated_data,
                 model=model,
                 batch_size=batch_size
             )
-
             # Hard Negative triplet selection
             #  (negative_distance - positive_distance < margin)
             #   Based on: https://github.com/davidsandberg/facenet/blob/master/src/train_tripletloss.py#L296
-            pos_dists = l2_distance.forward(anc_embeddings, pos_embeddings)
-            neg_dists = l2_distance.forward(anc_embeddings, neg_embeddings)
-            all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
-            valid_triplets = np.where(all_pos == 1)
-
-            anc_valid_embeddings = anc_embeddings[valid_triplets]
-            pos_valid_embeddings = pos_embeddings[valid_triplets]
-            neg_valid_embeddings = neg_embeddings[valid_triplets]
+            # pos_dists = l2_distance.forward(anc_embeddings, pos_embeddings)
+            # neg_dists = l2_distance.forward(anc_embeddings, neg_embeddings)
+            # all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
+            # valid_triplets = np.where(all_pos == 1)
+            #
+            # anc_valid_embeddings = anc_embeddings[valid_triplets]
+            # pos_valid_embeddings = pos_embeddings[valid_triplets]
+            # neg_valid_embeddings = neg_embeddings[valid_triplets]
 
             triplet_loss = criterion.forward(
-                anchor=anc_valid_embeddings,
-                pos=pos_valid_embeddings,
-                neg=neg_valid_embeddings
+                anchor=anc_embeddings,
+                pos=pos_embeddings,
+                neg=neg_embeddings
             )
 
             optimizer.zero_grad()
             triplet_loss.backward()
             optimizer.step()
-            tac = time.time()
-            print("Training data taking time {}".format(tac - toc))
+            scheduler.step()
 
             epoch_loss += triplet_loss / len(train_loader)
+
+            if batch_train >= 999:
+                break
+        print('The Triplet loss for Train epoch {} is {}.'.format(epoch+1, epoch_loss))
 
         with torch.no_grad():
             epoch_val_loss = 0
             val_iteration_limit = 100
-            for batch_val, val_data in enumerate(tqdm(train_loader, total=val_iteration_limit,
-                                                 desc=f'Validating, iteration {epoch} out of {epochs}')):
-                concatenated_data = torch.cat((val_data[0], val_data[4], val_data[8]), dim=0)
+            for batch_val, val_data in tqdm(enumerate(train_loader), total=val_iteration_limit,
+                                                 desc=f'Validating, iteration {epoch+1} out of {epochs}'):
+                concatenated_data = torch.cat((val_data[0], val_data[1], val_data[2]), dim=0)
 
                 anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
                     imgs=concatenated_data,
@@ -175,6 +174,7 @@ def train():
                 epoch_val_loss += val_loss / val_iteration_limit
                 if batch_val == val_iteration_limit - 1:
                     break
+            print('The Triplet loss for Validation epoch {} is {}.'.format(epoch+1, epoch_val_loss))
 
         # Save model checkpoint
         state = {
@@ -183,8 +183,8 @@ def train():
             'batch_size_training': batch_size,
             'model_state_dict': model.state_dict(),
             'optimizer_model_state_dict': optimizer.state_dict(),
-            'train_loss': np.mean(epoch_loss),
-            'cal_loss': np.mean(epoch_val_loss)
+            'train_loss': epoch_loss.item(),
+            'val_loss': epoch_val_loss.item()
         }
         if gpu_flag:
             state['model_state_dict'] = model.module.state_dict()

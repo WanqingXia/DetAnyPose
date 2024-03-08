@@ -18,6 +18,9 @@ import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import scipy.io
 import cProfile
+import pstats
+from io import StringIO
+from joblib import Parallel, delayed
 
 
 def get_hash(paths):
@@ -26,6 +29,7 @@ def get_hash(paths):
     h = hashlib.md5(str(size).encode())  # hash sizes
     h.update(''.join(paths).encode())  # hash paths
     return h.hexdigest()  # return hash
+
 
 def angle_between_vectors(v1, v2):
     """Calculate the angle in degrees between vectors 'v1' and 'v2'."""
@@ -43,6 +47,7 @@ def create_folder(path):
         os.makedirs(path)  # make new output folder
     return path
 
+
 class Process:
     def __init__(self, path, img_size=256):
         self.img_size = img_size
@@ -56,12 +61,15 @@ class Process:
                         '0091']  # current camera setting only match images before 60
         self.data_paths = [(self.path / 'data') / subpath for subpath in self.folders]
         self.gen_paths = sorted([p for p in Path(self.path / 'YCB_objects').glob('*') if p.is_dir()])
-        self.save_path = self.path / 'YCB_pairs'
+        self.save_path = Path('/home/iai-lab/Documents/YCB_Video_Dataset/YCB_pairs')
         self.train_data_path = create_folder(path=(self.save_path / 'train_data'))
         self.test_data_path = create_folder(path=(self.save_path / 'test_data'))
         self.gen_folders_names = [str(p.name) for p in self.gen_paths]
         self.obj_names = sorted([p.name for p in Path(self.path / 'models').glob('*') if p.is_dir()])
-        self.train_data, self.test_data = {}, {}
+        self.train_data, self.test_data, self.neg_files = {}, {}, {}
+
+        for name in self.gen_folders_names:
+            self.neg_files[name] = list((self.path / 'YCB_objects' / name).glob('*.txt'))
 
         try:
             f = []  # original text files
@@ -77,8 +85,8 @@ class Process:
         except Exception as e:
             raise Exception(f'Error loading data from {path}: {e}\n')
 
-        train_temp = Path(__file__).parent / 'train_temp_data.cache.npy'
-        test_temp = Path(__file__).parent / 'test_temp_data.cache.npy'
+        train_temp = Path(__file__).parent.parent / 'cache' / 'train_temp_data.cache.npy'
+        test_temp = Path(__file__).parent.parent / 'cache' / 'test_temp_data.cache.npy'
         try:
             self.train_data = np.load(train_temp, allow_pickle=True).item()
             self.test_data = np.load(test_temp, allow_pickle=True).item()
@@ -87,36 +95,45 @@ class Process:
             np.save(train_temp, self.train_data)  # save cache for next time
             np.save(test_temp, self.test_data)  # save cache for next time
 
-        train_cache_path = Path(__file__).parent.parent / 'cache' / 'train.cache'
-        test_cache_path = Path(__file__).parent.parent / 'cache' / 'test.cache'
-        self.train_save, self.test_save = [], []
-
         workers = 18  # Number of workers, maxed at the number of threads or the dataset size
-        # Process training data
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            # Prepare data for processing
-            train_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())]
-            # Process data in parallel
-            futures = [executor.submit(self.allocate_data, ori, gen, self.train_data_path) for ori, gen in train_tasks]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing training data"):
-                result = future.result()
-                self.train_save.append(result)
+        # # Process training data
+        # with ProcessPoolExecutor(max_workers=workers) as executor:
+        #     # Prepare data for processing
+        #     train_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())[35000:]]
+        #     # Process data in parallel
+        #     futures = [executor.submit(self.allocate_data, ori, gen, self.train_data_path) for ori, gen in train_tasks]
+        #     for future in tqdm(as_completed(futures), total=len(futures), desc="Processing training data"):
+        #         pass
 
-        # Save processed training data
-        np.save(train_cache_path, self.train_save)
-        train_cache_path.with_suffix('.cache.npy').rename(train_cache_path)  # remove .npy suffix
+        # results = Parallel(n_jobs=workers)(
+        #     delayed(self.allocate_data)(ori, gen, self.train_data_path) for ori, gen in tqdm(list(self.train_data.items())))
 
         # Repeat the process for test data
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            test_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())]
-            futures = [executor.submit(self.allocate_data, ori, gen, self.test_data_path) for ori, gen in test_tasks]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing testing data"):
-                result = future.result()
-                self.train_save.append(result)
+        # with ProcessPoolExecutor(max_workers=workers) as executor:
+        #     test_tasks = [(ori, gen) for ori, gen in list(self.test_data.items())]
+        #     futures = [executor.submit(self.allocate_data, ori, gen, self.test_data_path) for ori, gen in test_tasks]
+        #     for future in tqdm(as_completed(futures), total=len(futures), desc="Processing testing data"):
+        #         pass
 
-        # Save processed testing data
-        np.save(test_cache_path, self.test_save)
-        test_cache_path.with_suffix('.cache.npy').rename(test_cache_path)  # remove .npy suffix
+        self.removed_train_data = []
+        for ori, gen in tqdm(list(self.train_data.items()), total=len(self.train_data), desc="Processing training data"):
+            valid, path = self.allocate_data(ori, gen, self.train_data_path)
+            if not valid:
+                self.removed_train_data.append(path)
+        # note down all the files that are not used
+        with open(Path(__file__).parent / 'train_removed.txt', 'w') as file:
+            for item in self.removed_train_data:
+                file.write("%s\n" % item)
+
+        self.removed_test_data = []
+        for ori, gen in tqdm(list(self.test_data.items()), total=len(self.test_data), desc="Processing testing data"):
+            valid, path = self.allocate_data(ori, gen, self.test_data_path)
+            if not valid:
+                self.removed_test_data.append(path)
+        # note down all the files that are not used
+        with open(Path(__file__).parent / 'test_removed.txt', 'w') as file:
+            for item in self.removed_test_data:
+                file.write("%s\n" % item)
 
     def process_images(self):
         print('Scanning YCB_Video_Dataset/YCB_objects images and labels...')
@@ -220,8 +237,8 @@ class Process:
         return file_path, metad_file_path
 
     def allocate_data(self, ori_path, gen_path, save_path):
-        folder_path = self.load_image(Path(ori_path), Path(gen_path), save_path)
-        return folder_path
+        valid, folder_path = self.load_image(Path(ori_path), Path(gen_path), save_path)
+        return valid, folder_path
 
     def load_image(self, txt_path_obj, gen_txt_path, save_path):
         """
@@ -250,19 +267,17 @@ class Process:
         txt_path = txt_path_obj.parent
         # Extract the base name of the dataset or image set from the directory name.
         base_name = txt_path.name.split('-')[0]
-        new_path = create_folder(save_path / (txt_path.parent.name + '-' + base_name + '-' + obj_name))
-        new_path = Path(new_path)
 
         # Construct paths for the associated color, depth, label images, and metadata file, using the base name.
-        color_img_path = txt_path.parent / (base_name + '-color.png')
-        depth_img_path = txt_path.parent / (base_name + '-depth.png')
-        label_img_path = txt_path.parent / (base_name + '-label.png')
+        color_ori_path = txt_path.parent / (base_name + '-color.png')
+        depth_ori_path = txt_path.parent / (base_name + '-depth.png')
+        label_ori_path = txt_path.parent / (base_name + '-label.png')
         metad_file_path = txt_path.parent / (base_name + '-meta.mat')
 
         # Load the color, depth, and label images as NumPy arrays.
-        color_image = np.array(Image.open(color_img_path))
-        depth_image = np.array(Image.open(depth_img_path))
-        label_image = np.array(Image.open(label_img_path))
+        color_image = np.array(Image.open(color_ori_path))
+        depth_image = np.array(Image.open(depth_ori_path))
+        label_image = np.array(Image.open(label_ori_path))
         # Load the metadata file which contains additional information like object poses.
         mat = scipy.io.loadmat(metad_file_path)
 
@@ -275,19 +290,40 @@ class Process:
 
         # Create a mask where the label image matches the current object number.
         isolated_mask = (label_image == obj_num)
+
+        # For generated data, determine the paths for color and depth images, and load the pose information.
+        color_gen_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-color.png')
+        depth_gen_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-depth.png')
+        depth_gen = np.array(Image.open(depth_gen_path))
+        pose_gen = np.loadtxt(gen_txt_path)[:3, :]
+
+        ori_dis = pose_ori[2, 3]
+        gen_dis = pose_gen[2, 3]
+        # count number of non-zero pixels
+        ori_count = np.count_nonzero(isolated_mask > 0)
+        gen_count = np.count_nonzero(depth_gen > 0)
+        # calculate how big the number of non-zero pixels that should exist in original image
+        count_estimated = gen_count * (gen_dis / ori_dis)
+        if ori_count < count_estimated * 0.5:
+            print("Object {} in image {} has {}/{} pixels, skipping this one"
+                  .format(obj_name, txt_path, ori_count, count_estimated))
+            return False, txt_path_obj
+
         # Isolate the color and depth images using the generated mask.
-        color_isolated = self.isolate_image(color_image, isolated_mask, color_img_path)
-        depth_isolated = self.isolate_image(depth_image, isolated_mask, depth_img_path)
+        color_isolated = self.isolate_image(color_image, isolated_mask, color_ori_path)
+        depth_isolated = self.isolate_image(depth_image, isolated_mask, depth_ori_path)
+
+        # create new folder to save
+        new_path = create_folder(save_path / (txt_path.parent.name + '-' + base_name + '-' + obj_name))
+        new_path = Path(new_path)
+
         Image.fromarray(color_isolated.astype('uint8'), 'RGB').save(new_path / 'color_original.png')
         Image.fromarray(depth_isolated.astype('I')).save(new_path / 'depth_original.png')
         np.savetxt(new_path / 'pose_original.txt', pose_ori)
 
-        # For generated data, determine the paths for color and depth images, and load the pose information.
-        color_img_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-color.png')
-        depth_img_path = gen_txt_path.parent / (gen_txt_path.name.split('-')[0] + '-depth.png')
-        pose_gen = np.loadtxt(gen_txt_path)[:3, :]
-        shutil.copy(color_img_path, new_path / 'color_generated.png')
-        shutil.copy(depth_img_path, new_path / 'depth_generated.png')
+        # copy over generated files
+        shutil.copy(color_gen_path, new_path / 'color_generated.png')
+        shutil.copy(depth_gen_path, new_path / 'depth_generated.png')
         np.savetxt(new_path / 'pose_generated.txt', pose_gen)
 
         # Retrieve negative sample images (i.e., images not containing the object of interest) for the current object.
@@ -301,7 +337,7 @@ class Process:
             f.write(str(gen_txt_path))
             f.write(str(neg_txt_path))
 
-        return Path(new_path)
+        return True, Path(new_path)
 
     def search_imgs(self, gen_poses, pose_ori):
         """
@@ -342,17 +378,14 @@ class Process:
             - neg_txt_path (str): The path to the negative text file containing the negative pose and other metadata.
 
         """
-        files = self.gen_folders_names.copy()
-        files.remove(obj_name)
-        neg_obj = random.choice(files)
-        txt_files = sorted((self.path / 'YCB_objects' / neg_obj).rglob('*.txt'))
-        # Filter out files that end with '.txt'
-        neg_file = random.choice(txt_files)
-        neg_txt_path = self.path / 'YCB_objects' / neg_obj / neg_file
-        neg_color_img_path = neg_txt_path.parent / (neg_txt_path.name.split('-')[0] + '-color.png')
-        neg_depth_img_path = neg_txt_path.parent / (neg_txt_path.name.split('-')[0] + '-depth.png')
+        neg_files = self.neg_files.copy()
+        neg_files.pop(obj_name)
+        chosen_key = random.choice(list(neg_files.keys()))
+        chosen_path = random.choice(neg_files[chosen_key])
+        neg_color_img_path = chosen_path.parent / (chosen_path.name.split('-')[0] + '-color.png')
+        neg_depth_img_path = chosen_path.parent / (chosen_path.name.split('-')[0] + '-depth.png')
 
-        return neg_color_img_path, neg_depth_img_path, neg_txt_path
+        return neg_color_img_path, neg_depth_img_path, chosen_path
 
     def isolate_image(self, input_img, mask, img_file):
         """
@@ -387,12 +420,8 @@ class Process:
         # Find the bounding box of the masked area to extract only the relevant part
         rows = np.any(mask, axis=1)
         cols = np.any(mask, axis=0)
-        if rows.size == 0:
-            print("The 'rows' array is empty.")
-            stop = 1
-        if cols.size == 0:
-            print("The 'cols' array is empty.")
-            stop = 1
+        if rows.size == 0 or cols.size == 0 or not np.any(rows) or not np.any(cols):
+            return False  # the object is not in the image
         rmin, rmax = np.where(rows)[0][[0, -1]]
         cmin, cmax = np.where(cols)[0][[0, -1]]
 
