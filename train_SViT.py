@@ -1,20 +1,13 @@
-import glob
-from itertools import chain
 import os
 import random
-import zipfile
 
-import time
 from datetime import datetime
 from pathlib import Path
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import DataLoader
-from torchvision import transforms
 from tqdm import tqdm
 from torch.nn.modules.distance import PairwiseDistance
 
@@ -65,12 +58,12 @@ def forward_pass(imgs, model, batch_size):
 
 def train():
     # Define hyperparameter
-    dataroot = '/home/iai-lab/Documents/YCB_Video_Dataset'
+    dataroot = '/home/wanqing/YCB_Video_Dataset'
     save_root = Path('./results')
-    epochs = 20
+    epochs = 100
     embedding_dimension = 512
-    batch_size = 64
-    num_workers = 36
+    batch_size = 16
+    num_workers = 4
     learning_rate = 1e-3
     margin = 0.2
     image_size = 256

@@ -332,10 +332,10 @@ class Process:
         shutil.copy(neg_depth_path, new_path / 'depth_negative.png')
 
         with open(new_path / 'name_and_path.txt', 'w') as f:
-            f.write(obj_name)
-            f.write(str(txt_path))
-            f.write(str(gen_txt_path))
-            f.write(str(neg_txt_path))
+            f.write(obj_name + "\n")
+            f.write(str(txt_path) + "\n")
+            f.write(str(gen_txt_path) + "\n")
+            f.write(str(neg_txt_path) + "\n")
 
         return True, Path(new_path)
 
