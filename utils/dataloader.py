@@ -38,13 +38,15 @@ def create_dataloader(path, type, imgsz, batch_size, workers=8):
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, type, img_size=256):
         self.img_size = img_size
-        assert type in ('train', 'test'), f'{type} is not train or test'
+        assert type in ('train', 'val', 'test'), f'{type} is not train,val or test'
         self.type = type
         self.data_paths = []
         if self.type == 'train':
             self.path = Path(path) / 'YCB_pairs' / 'train_data'
         elif self.type == 'test':
             self.path = Path(path) / 'YCB_pairs' / 'test_data'
+        elif self.type == 'val':
+            self.path = Path(path) / 'YCB_pairs' / 'val_data'
 
         try:
             self.data_paths = os.listdir(self.path)

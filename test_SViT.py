@@ -1,12 +1,3 @@
-# TODO: Randomly pick 1000 pairs from train_data and 1000 from test_data
-
-# TODO: For each pair, use trained network to get the distance between gen and ori, pick the closest gen,
-#  this requires encoding of all 4000 gen images for each object
-
-# TODO: Compare the difference between the selected gen and chosen gen
-
-# TODO: Save the result to a txt file
-
 import os
 import random
 
@@ -85,7 +76,7 @@ def forward_pass(imgs, model, batch_size):
 
 def test_SViT():
     # load trained model
-    model_path = './results/03-11_16:47/triplet_epoch_0.pt'
+    model_path = './results/03-11_11:09/triplet_epoch_91.pt'
 
     embedding_dimension = 512
     image_size = 256
@@ -105,10 +96,10 @@ def test_SViT():
     model.eval()
 
     # create dataloader for testing
-    dataroot = '/home/wanqing/YCB_Video_Dataset'
-    batch_size = 20
-    num_workers = 8
-    inference_size = 1000 # 1000 pairs from train and test
+    dataroot = '/home/iai-lab/Documents/YCB_Video_Dataset'
+    batch_size = 50  # modify base on your device
+    num_workers = 18  # modify base on your device
+    inference_size = 1000  # 1000 pairs from train and test
     train_loader, train_set = create_dataloader(dataroot,
                                                 type='train',
                                                 imgsz=image_size,
@@ -123,7 +114,7 @@ def test_SViT():
     gen_content = read_folders_contents(dataroot)
     # Loop through each string and sub-dict
     with torch.no_grad():
-        for folder_name, sub_dict in gen_content.items():
+        for folder_name, sub_dict in tqdm(gen_content.items()):
             # For each sub-dict, get the path and ndarray
             for path, pose in sub_dict.items():
                 # load the img
@@ -168,8 +159,8 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
             batch_size=batch_size
         )
 
-        for anc, pos, d in zip(anc_embeddings, pos_embeddings, data[6], data[7], ):
-            obj_name = data[8][0]
+        for anc, pos, ori_pose, gen_pose, obj_name, ori_path, gen_path in (
+                zip(anc_embeddings, pos_embeddings, data[6], data[7], data[8][0], data[8][1], data[8][2])):
             smallest_dist, s_path, s_pose = 1000, [], []
             for path, c_list in gen_content[obj_name].items():
                 temp_dist = l2_distance.forward(anc, c_list[1])
@@ -179,17 +170,17 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
                     s_pose = c_list[0]
 
             new_object = {
-                "original": d[8][1],
-                "pre_selected_gen": d[8][2],
-                "angular_dist_sgen": round(angle_between_rotation_matrices(d[6], d[7]), 3),
-                "distance_sgen": round(l2_distance.forward(anc, pos), 3),
-                "mod_selected_gen": s_path,
-                "angular_dist_mgen": round(angle_between_rotation_matrices(d[6], s_pose), 3),
-                "distance_mgen": round(smallest_dist, 3),
+                "original": str(ori_path),
+                "pre_selected_gen": str(gen_path),
+                "angular_dist_sgen": angle_between_rotation_matrices(ori_pose, gen_pose),
+                "distance_sgen": round(l2_distance.forward(anc, pos).item(), 3),
+                "mod_selected_gen": str(s_path),
+                "angular_dist_mgen": angle_between_rotation_matrices(ori_pose, s_pose),
+                "distance_mgen": round(smallest_dist.item(), 3),
             }
             results.append(new_object)
-
-    return results
+        if batch == inference_size / batch_size - 1:
+            return results
 
 
 if __name__ == '__main__':

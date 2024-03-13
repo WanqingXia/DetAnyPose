@@ -64,6 +64,7 @@ class Process:
         self.save_path = Path('/home/iai-lab/Documents/YCB_Video_Dataset/YCB_pairs')
         self.train_data_path = create_folder(path=(self.save_path / 'train_data'))
         self.test_data_path = create_folder(path=(self.save_path / 'test_data'))
+        self.val_data_path = create_folder(path=(self.save_path / 'val_data'))
         self.gen_folders_names = [str(p.name) for p in self.gen_paths]
         self.obj_names = sorted([p.name for p in Path(self.path / 'models').glob('*') if p.is_dir()])
         self.train_data, self.test_data, self.neg_files = {}, {}, {}
@@ -95,26 +96,6 @@ class Process:
             np.save(train_temp, self.train_data)  # save cache for next time
             np.save(test_temp, self.test_data)  # save cache for next time
 
-        workers = 18  # Number of workers, maxed at the number of threads or the dataset size
-        # # Process training data
-        # with ProcessPoolExecutor(max_workers=workers) as executor:
-        #     # Prepare data for processing
-        #     train_tasks = [(ori, gen) for ori, gen in list(self.train_data.items())[35000:]]
-        #     # Process data in parallel
-        #     futures = [executor.submit(self.allocate_data, ori, gen, self.train_data_path) for ori, gen in train_tasks]
-        #     for future in tqdm(as_completed(futures), total=len(futures), desc="Processing training data"):
-        #         pass
-
-        # results = Parallel(n_jobs=workers)(
-        #     delayed(self.allocate_data)(ori, gen, self.train_data_path) for ori, gen in tqdm(list(self.train_data.items())))
-
-        # Repeat the process for test data
-        # with ProcessPoolExecutor(max_workers=workers) as executor:
-        #     test_tasks = [(ori, gen) for ori, gen in list(self.test_data.items())]
-        #     futures = [executor.submit(self.allocate_data, ori, gen, self.test_data_path) for ori, gen in test_tasks]
-        #     for future in tqdm(as_completed(futures), total=len(futures), desc="Processing testing data"):
-        #         pass
-
         self.removed_train_data = []
         for ori, gen in tqdm(list(self.train_data.items()), total=len(self.train_data), desc="Processing training data"):
             valid, path = self.allocate_data(ori, gen, self.train_data_path)
@@ -134,6 +115,8 @@ class Process:
         with open(Path(__file__).parent / 'test_removed.txt', 'w') as file:
             for item in self.removed_test_data:
                 file.write("%s\n" % item)
+
+        self.move_random_dirs(6400)  # randomly move 6400 pairs to val_data for validation
 
     def process_images(self):
         print('Scanning YCB_Video_Dataset/YCB_objects images and labels...')
@@ -304,7 +287,7 @@ class Process:
         gen_count = np.count_nonzero(depth_gen > 0)
         # calculate how big the number of non-zero pixels that should exist in original image
         count_estimated = gen_count * (gen_dis / ori_dis)
-        if ori_count < count_estimated * 0.5:
+        if ori_count < count_estimated * 0.6:
             print("Object {} in image {} has {}/{} pixels, skipping this one"
                   .format(obj_name, txt_path, ori_count, count_estimated))
             return False, txt_path_obj
@@ -461,6 +444,31 @@ class Process:
         except Exception as e:
             raise Exception(f'Error isolating the image {img_file}: {e}\n')
         return background
+
+    def move_random_dirs(self, num_dirs):
+        # Make sure the source directory exists
+
+        # List all subdirectories in the source directory
+        all_subdirs = [d for d in os.listdir(self.train_data_path) if os.path.isdir(os.path.join(self.train_data_path, d))]
+
+        # Check if there are enough subdirectories to move
+        if len(all_subdirs) < num_dirs:
+            print(f"Only {len(all_subdirs)} subdirectories available to move, but {num_dirs} were requested.")
+            return
+
+        # Randomly select the subdirectories to move
+        selected_subdirs = random.sample(all_subdirs, num_dirs)
+
+        # Move the selected subdirectories to the destination directory
+        for subdir in selected_subdirs:
+            source_path = os.path.join(self.train_data_path, subdir)
+            dest_path = os.path.join(self.val_data_path, subdir)
+
+            try:
+                shutil.move(source_path, dest_path)
+                print(f"Moved {source_path} to {dest_path}.")
+            except Exception as e:
+                print(f"Error moving {source_path} to {dest_path}: {e}")
 
 
 if __name__ == '__main__':

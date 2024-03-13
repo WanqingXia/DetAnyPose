@@ -103,11 +103,18 @@ def train():
                                                 imgsz=image_size,
                                                 batch_size=batch_size,
                                                 workers=num_workers)
+    val_loader, val_set = create_dataloader(dataroot,
+                                            type='val',
+                                            imgsz=image_size,
+                                            batch_size=batch_size,
+                                            workers=num_workers)
+
+    best_val_loss = 1000000
 
     for epoch in range(start_epoch, epochs):
         epoch_loss = 0
         for batch_train, train_data in tqdm(enumerate(train_loader), total=min(1000, len(train_loader)),
-                                                 desc=f'Training, iteration {epoch+1} out of {epochs}'):
+                                            desc=f'Training, iteration {epoch + 1} out of {epochs}'):
             l2_distance = PairwiseDistance(p=2)
             concatenated_data = torch.cat((train_data[0], train_data[1], train_data[2]), dim=0)
 
@@ -143,13 +150,13 @@ def train():
 
             if batch_train >= 999:
                 break
-        print('The Triplet loss for Train epoch {} is {}.'.format(epoch+1, epoch_loss))
+        print('The Triplet loss for Train epoch {} is {}.'.format(epoch + 1, epoch_loss))
 
         with torch.no_grad():
             epoch_val_loss = 0
-            val_iteration_limit = 100
-            for batch_val, val_data in tqdm(enumerate(train_loader), total=val_iteration_limit,
-                                                 desc=f'Validating, iteration {epoch+1} out of {epochs}'):
+            val_iteration_limit = 100  # can support up to 100 epochs for batch size 64
+            for batch_val, val_data in tqdm(enumerate(val_loader), total=val_iteration_limit,
+                                            desc=f'Validating, iteration {epoch + 1} out of {epochs}'):
                 concatenated_data = torch.cat((val_data[0], val_data[1], val_data[2]), dim=0)
 
                 anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
@@ -167,25 +174,26 @@ def train():
                 epoch_val_loss += val_loss / val_iteration_limit
                 if batch_val == val_iteration_limit - 1:
                     break
-            print('The Triplet loss for Validation epoch {} is {}.'.format(epoch+1, epoch_val_loss))
+            print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, epoch_val_loss))
 
-        # Save model checkpoint
-        state = {
-            'epoch': epoch,
-            'embedding_dimension': embedding_dimension,
-            'batch_size_training': batch_size,
-            'model_state_dict': model.state_dict(),
-            'optimizer_model_state_dict': optimizer.state_dict(),
-            'train_loss': epoch_loss.item(),
-            'val_loss': epoch_val_loss.item()
-        }
-        if gpu_flag:
-            state['model_state_dict'] = model.module.state_dict()
+            # Save model checkpoint for the best validation results
+            if epoch_val_loss.item() < best_val_loss:
+                best_val_loss = epoch_val_loss.item()
+                state = {
+                    'epoch': epoch,
+                    'embedding_dimension': embedding_dimension,
+                    'batch_size_training': batch_size,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_model_state_dict': optimizer.state_dict(),
+                    'train_loss': epoch_loss.item(),
+                    'val_loss': epoch_val_loss.item()
+                }
+                if gpu_flag:
+                    state['model_state_dict'] = model.module.state_dict()
 
-        # Save model checkpoint
-        torch.save(state, save_path / 'triplet_epoch_{}.pt'.format(epoch))
+                # Save model checkpoint
+                torch.save(state, save_path / 'triplet_epoch_{}.pt'.format(epoch))
 
 
 if __name__ == '__main__':
     train()
-
