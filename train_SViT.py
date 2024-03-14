@@ -58,7 +58,7 @@ def forward_pass(imgs, model, batch_size):
 
 def train():
     # Define hyperparameter
-    dataroot = '/home/wanqing/YCB_Video_Dataset'
+    dataroot = '/home/iai-lab/Documents/YCB_Video_Dataset'
     save_root = Path('./results')
     epochs = 100
     embedding_dimension = 512
@@ -192,7 +192,7 @@ def train():
                     state['model_state_dict'] = model.module.state_dict()
 
                 # Save model checkpoint
-                torch.save(state, save_path / 'triplet_epoch_{}.pt'.format(epoch))
+                torch.save(state, save_path / 'best.pt')
 
 
 if __name__ == '__main__':
