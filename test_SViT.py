@@ -76,7 +76,7 @@ def forward_pass(imgs, model, batch_size):
 
 def test_SViT():
     # load trained model
-    model_path = './results/03-11_11:09/triplet_epoch_91.pt'
+    model_path = './results/03-19_14:35/best.pt'
 
     embedding_dimension = 512
     image_size = 256
@@ -141,8 +141,10 @@ def test_SViT():
         # Writing JSON data
         with open('./results/trained_results.json', 'w') as f:
             json.dump(trained_results, f, indent=4)
+        print('Trained result saved to {}/trained_results.json\n'.format(model_path.split('/best')[0]))
         with open('./results/untrained_results.json', 'w') as f:
             json.dump(untrained_results, f, indent=4)
+        print('Untrained result saved to {}/trained_results.json\n'.format(model_path.split('/best')[0]))
 
 
 def inference(dataloader, model, gen_content, batch_size, inference_size, source):
@@ -179,7 +181,7 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
                 "distance_mgen": round(smallest_dist.item(), 3),
             }
             results.append(new_object)
-        if batch == inference_size / batch_size - 1:
+        if batch == inference_size / batch_size:
             return results
 
 

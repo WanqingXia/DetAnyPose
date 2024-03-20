@@ -310,7 +310,7 @@ class Process:
         np.savetxt(new_path / 'pose_generated.txt', pose_gen)
 
         # Retrieve negative sample images (i.e., images not containing the object of interest) for the current object.
-        neg_color_path, neg_depth_path, neg_txt_path = self.get_negative_imgs(obj_name)
+        neg_color_path, neg_depth_path, neg_txt_path = self.get_negative_imgs(obj_name, gen_txt_path)
         shutil.copy(neg_color_path, new_path / 'color_negative.png')
         shutil.copy(neg_depth_path, new_path / 'depth_negative.png')
 
@@ -346,7 +346,7 @@ class Process:
                 file = file_name
         return file
 
-    def get_negative_imgs(self, obj_name):
+    def get_negative_imgs(self, obj_name, selected_path):
         """
         Returns a negative image and its metadata for a given object name.
 
@@ -361,10 +361,9 @@ class Process:
             - neg_txt_path (str): The path to the negative text file containing the negative pose and other metadata.
 
         """
-        neg_files = self.neg_files.copy()
-        neg_files.pop(obj_name)
-        chosen_key = random.choice(list(neg_files.keys()))
-        chosen_path = random.choice(neg_files[chosen_key])
+        neg_files = self.neg_files[obj_name].copy()
+        neg_files.remove(selected_path)
+        chosen_path = random.choice(neg_files)
         neg_color_img_path = chosen_path.parent / (chosen_path.name.split('-')[0] + '-color.png')
         neg_depth_img_path = chosen_path.parent / (chosen_path.name.split('-')[0] + '-depth.png')
 

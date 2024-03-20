@@ -50,7 +50,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         try:
             self.data_paths = os.listdir(self.path)
-            print('{} training sets are found'.format(self.__len__()))
+            print('{} image sets are found for {}.'.format(self.__len__(), type))
         except:
             print('Cache does not exist in {}, please run utils/process_data.py first.'.format(self.path))
 

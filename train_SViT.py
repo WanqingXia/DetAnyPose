@@ -15,6 +15,7 @@ from utils.dataloader import create_dataloader
 from utils.process_data import create_folder
 from losses.triplet_loss import TripletLoss
 from models.simple_vit import SimpleViT
+from torch.optim.lr_scheduler import ExponentialLR
 
 
 def seed_everything(seed):
@@ -62,14 +63,12 @@ def train():
     save_root = Path('./results')
     epochs = 100
     embedding_dimension = 512
-    batch_size = 16
-    num_workers = 4
-    learning_rate = 1e-3
+    batch_size = 64
+    num_workers = 18
     margin = 0.2
     image_size = 256
     start_epoch = 0
     seed = 42
-    gamma = 0.7
 
     # Define seed for whole training
     seed_everything(seed)
@@ -77,6 +76,8 @@ def train():
     # Format the current date and time to be accurate to minutes, excluding the year
     formatted_now = datetime.now().strftime("%m-%d_%H:%M")
     save_path = create_folder(save_root / formatted_now)
+    save_train = create_folder(save_path / 'train')
+    save_val = create_folder(save_path / 'val')
 
     # Define ViT model
     model = SimpleViT(
@@ -90,13 +91,18 @@ def train():
     )
 
     model, gpu_flag = set_model_gpu_mode(model)
+    # Define warm-up period
+    warmup_epochs = 5
 
     # loss function
-    criterion = TripletLoss(margin=margin)
+    triplet_loss = TripletLoss()
     # optimizer
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # scheduler
-    scheduler = StepLR(optimizer, step_size=1, gamma=gamma)
+    base_lr = 1e-5
+    max_lr = 1e-3
+    gamma = (base_lr / max_lr) ** (1 / (epochs - warmup_epochs))  # Calculate gamma to reach 1e-5 in the given epochs
+    scheduler = ExponentialLR(optimizer, gamma=gamma)
 
     train_loader, train_set = create_dataloader(dataroot,
                                                 type='train',
@@ -112,12 +118,29 @@ def train():
     best_val_loss = 1000000
 
     for epoch in range(start_epoch, epochs):
+        record = []
         epoch_loss = 0
+        # Warm-up learning rate adjustment
+        if epoch < warmup_epochs:
+            # Warm-up: Linearly increase or decrease LR
+            # Calculate the warmup factor
+            warmup_factor = epoch / warmup_epochs
+            lr = max_lr + (base_lr - max_lr) * warmup_factor  # Adjust this formula based on your warmup strategy
+            # Update optimizer's learning rate
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+        else:
+            # Apply exponential decay
+            scheduler.step()
+
         for batch_train, train_data in tqdm(enumerate(train_loader), total=min(1000, len(train_loader)),
                                             desc=f'Training, iteration {epoch + 1} out of {epochs}'):
+            if batch_train == 1000:
+                break
             l2_distance = PairwiseDistance(p=2)
-            concatenated_data = torch.cat((train_data[0], train_data[1], train_data[2]), dim=0)
+            optimizer.zero_grad()
 
+            concatenated_data = torch.cat((train_data[0], train_data[1], train_data[2]), dim=0)
             anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
                 imgs=concatenated_data,
                 model=model,
@@ -135,28 +158,35 @@ def train():
             # pos_valid_embeddings = pos_embeddings[valid_triplets]
             # neg_valid_embeddings = neg_embeddings[valid_triplets]
 
-            triplet_loss = criterion.forward(
+            loss = triplet_loss.forward(
                 anchor=anc_embeddings,
                 pos=pos_embeddings,
                 neg=neg_embeddings
             )
+            ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
+            an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
 
-            optimizer.zero_grad()
-            triplet_loss.backward()
+            record.append(
+                'Epoch {} batch {}, ap dist:{}, an dist:{}, triplet loss:{}.\n'.format(epoch, batch_train, ap_dist,
+                                                                                       an_dist, loss))
+
+            loss.backward()
             optimizer.step()
-            scheduler.step()
+            epoch_loss += loss / len(train_loader)
 
-            epoch_loss += triplet_loss / len(train_loader)
+        # print('The Triplet loss for Train epoch {} is {}.'.format(epoch + 1, epoch_loss))
+        with open(save_train / 'record{}.txt'.format(epoch), 'w') as f:
+            f.writelines(record)
 
-            if batch_train >= 999:
-                break
-        print('The Triplet loss for Train epoch {} is {}.'.format(epoch + 1, epoch_loss))
-
+        record_val = []
         with torch.no_grad():
             epoch_val_loss = 0
             val_iteration_limit = 100  # can support up to 100 epochs for batch size 64
             for batch_val, val_data in tqdm(enumerate(val_loader), total=val_iteration_limit,
                                             desc=f'Validating, iteration {epoch + 1} out of {epochs}'):
+
+                if batch_val == val_iteration_limit:
+                    break
                 concatenated_data = torch.cat((val_data[0], val_data[1], val_data[2]), dim=0)
 
                 anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
@@ -165,19 +195,24 @@ def train():
                     batch_size=batch_size
                 )
 
-                val_loss = criterion.forward(
+                val_loss = triplet_loss.forward(
                     anchor=anc_embeddings,
                     pos=pos_embeddings,
                     neg=neg_embeddings
                 )
 
+                ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
+                an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
+                record_val.append(
+                    'Epoch {} batch {}, ap dist:{}, an dist:{}, triplet loss:{}.\n'.format(epoch, batch_val, ap_dist,
+                                                                                           an_dist, val_loss))
+
                 epoch_val_loss += val_loss / val_iteration_limit
-                if batch_val == val_iteration_limit - 1:
-                    break
+
             print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, epoch_val_loss))
 
             # Save model checkpoint for the best validation results
-            if epoch_val_loss.item() < best_val_loss:
+            if epoch_val_loss.item() < best_val_loss or epoch == epochs - 1:
                 best_val_loss = epoch_val_loss.item()
                 state = {
                     'epoch': epoch,
@@ -190,9 +225,15 @@ def train():
                 }
                 if gpu_flag:
                     state['model_state_dict'] = model.module.state_dict()
-
-                # Save model checkpoint
-                torch.save(state, save_path / 'best.pt')
+                if epoch == epochs - 1:
+                    torch.save(state, save_path / 'best.pt')
+                    print('Last model saved \n')
+                else:
+                    # Save model checkpoint
+                    torch.save(state, save_path / 'best.pt')
+                    print('New best model saved \n')
+        with open(save_val / 'record{}.txt'.format(epoch), 'w') as f:
+            f.writelines(record_val)
 
 
 if __name__ == '__main__':
