@@ -74,9 +74,10 @@ def forward_pass(imgs, model, batch_size):
 
     return anc_embeddings, pos_embeddings, neg_embeddings, model
 
+
 def test_SViT():
     # load trained model
-    model_path = './results/03-19_14:35/best.pt'
+    model_path = './results/03-21_00:15/best.pt'
 
     embedding_dimension = 512
     image_size = 256
@@ -139,12 +140,12 @@ def test_SViT():
         untrained_results = inference(test_loader, model, gen_content, batch_size, inference_size, 'untrained')
 
         # Writing JSON data
-        with open('./results/trained_results.json', 'w') as f:
+        with open('{}/trained_results.json\n'.format(model_path.split('/best')[0], 'w')) as f:
             json.dump(trained_results, f, indent=4)
-        print('Trained result saved to {}/trained_results.json\n'.format(model_path.split('/best')[0]))
-        with open('./results/untrained_results.json', 'w') as f:
+        print('Trained result saved to {}/trained_results.json'.format(model_path.split('/best')[0]))
+        with open('{}/untrained_results.json\n'.format(model_path.split('/best')[0], 'w')) as f:
             json.dump(untrained_results, f, indent=4)
-        print('Untrained result saved to {}/trained_results.json\n'.format(model_path.split('/best')[0]))
+        print('Untrained result saved to {}/untrained_results.json'.format(model_path.split('/best')[0]))
 
 
 def inference(dataloader, model, gen_content, batch_size, inference_size, source):

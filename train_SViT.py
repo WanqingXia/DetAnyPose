@@ -10,6 +10,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 from torch.nn.modules.distance import PairwiseDistance
+import wandb
 
 from utils.dataloader import create_dataloader
 from utils.process_data import create_folder
@@ -69,6 +70,8 @@ def train():
     image_size = 256
     start_epoch = 0
     seed = 42
+    iter_per_epoch = 1000
+    gamma = 0.95
 
     # Define seed for whole training
     seed_everything(seed)
@@ -76,8 +79,6 @@ def train():
     # Format the current date and time to be accurate to minutes, excluding the year
     formatted_now = datetime.now().strftime("%m-%d_%H:%M")
     save_path = create_folder(save_root / formatted_now)
-    save_train = create_folder(save_path / 'train')
-    save_val = create_folder(save_path / 'val')
 
     # Define ViT model
     model = SimpleViT(
@@ -95,13 +96,12 @@ def train():
     warmup_epochs = 5
 
     # loss function
-    triplet_loss = TripletLoss()
+    triplet_loss = TripletLoss(margin=margin)
     # optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # scheduler
-    base_lr = 1e-5
-    max_lr = 1e-3
-    gamma = (base_lr / max_lr) ** (1 / (epochs - warmup_epochs))  # Calculate gamma to reach 1e-5 in the given epochs
+    start_lr = 1e-3
+    final_lr = 1e-5
     scheduler = ExponentialLR(optimizer, gamma=gamma)
 
     train_loader, train_set = create_dataloader(dataroot,
@@ -118,14 +118,14 @@ def train():
     best_val_loss = 1000000
 
     for epoch in range(start_epoch, epochs):
-        record = []
         epoch_loss = 0
         # Warm-up learning rate adjustment
         if epoch < warmup_epochs:
             # Warm-up: Linearly increase or decrease LR
             # Calculate the warmup factor
             warmup_factor = epoch / warmup_epochs
-            lr = max_lr + (base_lr - max_lr) * warmup_factor  # Adjust this formula based on your warmup strategy
+            initial_lr = start_lr / 100
+            lr = initial_lr + (start_lr - initial_lr) * warmup_factor
             # Update optimizer's learning rate
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
@@ -133,9 +133,9 @@ def train():
             # Apply exponential decay
             scheduler.step()
 
-        for batch_train, train_data in tqdm(enumerate(train_loader), total=min(1000, len(train_loader)),
+        for batch_train, train_data in tqdm(enumerate(train_loader), total=min(iter_per_epoch, len(train_loader)),
                                             desc=f'Training, iteration {epoch + 1} out of {epochs}'):
-            if batch_train == 1000:
+            if batch_train == iter_per_epoch:
                 break
             l2_distance = PairwiseDistance(p=2)
             optimizer.zero_grad()
@@ -149,38 +149,39 @@ def train():
             # Hard Negative triplet selection
             #  (negative_distance - positive_distance < margin)
             #   Based on: https://github.com/davidsandberg/facenet/blob/master/src/train_tripletloss.py#L296
-            # pos_dists = l2_distance.forward(anc_embeddings, pos_embeddings)
-            # neg_dists = l2_distance.forward(anc_embeddings, neg_embeddings)
-            # all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
-            # valid_triplets = np.where(all_pos == 1)
-            #
-            # anc_valid_embeddings = anc_embeddings[valid_triplets]
-            # pos_valid_embeddings = pos_embeddings[valid_triplets]
-            # neg_valid_embeddings = neg_embeddings[valid_triplets]
+            pos_dists = l2_distance.forward(anc_embeddings, pos_embeddings)
+            neg_dists = l2_distance.forward(anc_embeddings, neg_embeddings)
+            all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
+            valid_triplets = np.where(all_pos == 1)
+
+            anc_valid_embeddings = anc_embeddings[valid_triplets]
+            pos_valid_embeddings = pos_embeddings[valid_triplets]
+            neg_valid_embeddings = neg_embeddings[valid_triplets]
 
             loss = triplet_loss.forward(
-                anchor=anc_embeddings,
-                pos=pos_embeddings,
-                neg=neg_embeddings
+                anchor=anc_valid_embeddings,
+                pos=pos_valid_embeddings,
+                neg=neg_valid_embeddings
             )
             ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
             an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
+            # Get the current learning rate
+            current_lr = optimizer.param_groups[0]['lr']
 
-            record.append(
-                'Epoch {} batch {}, ap dist:{}, an dist:{}, triplet loss:{}.\n'.format(epoch, batch_train, ap_dist,
-                                                                                       an_dist, loss))
+            # Log metrics to wandb using the unique step as the x-axis
+            wandb.log({"train_loss": loss.item(),
+                       "ap_dist": ap_dist,
+                       "an_dist": an_dist,
+                       "learning_rate": current_lr,
+                       "train_step": epoch * iter_per_epoch + batch_train})
 
             loss.backward()
             optimizer.step()
             epoch_loss += loss / len(train_loader)
+        wandb.log({'train_epoch_loss': epoch_loss.item(), 'epoch_step': epoch})
 
-        # print('The Triplet loss for Train epoch {} is {}.'.format(epoch + 1, epoch_loss))
-        with open(save_train / 'record{}.txt'.format(epoch), 'w') as f:
-            f.writelines(record)
-
-        record_val = []
         with torch.no_grad():
-            epoch_val_loss = 0
+            val_epoch_loss = 0
             val_iteration_limit = 100  # can support up to 100 epochs for batch size 64
             for batch_val, val_data in tqdm(enumerate(val_loader), total=val_iteration_limit,
                                             desc=f'Validating, iteration {epoch + 1} out of {epochs}'):
@@ -203,17 +204,15 @@ def train():
 
                 ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
                 an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
-                record_val.append(
-                    'Epoch {} batch {}, ap dist:{}, an dist:{}, triplet loss:{}.\n'.format(epoch, batch_val, ap_dist,
-                                                                                           an_dist, val_loss))
+                wandb.log({"val_loss": val_loss.item(), "val_step": epoch * val_iteration_limit + batch_val})
 
-                epoch_val_loss += val_loss / val_iteration_limit
-
-            print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, epoch_val_loss))
+                val_epoch_loss += val_loss / val_iteration_limit
+            wandb.log({'val_epoch_loss': val_epoch_loss.item(), 'epoch_step': epoch})
+            print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, val_epoch_loss))
 
             # Save model checkpoint for the best validation results
-            if epoch_val_loss.item() < best_val_loss or epoch == epochs - 1:
-                best_val_loss = epoch_val_loss.item()
+            if val_epoch_loss.item() < best_val_loss or epoch == epochs - 1:
+                best_val_loss = val_epoch_loss.item()
                 state = {
                     'epoch': epoch,
                     'embedding_dimension': embedding_dimension,
@@ -221,20 +220,25 @@ def train():
                     'model_state_dict': model.state_dict(),
                     'optimizer_model_state_dict': optimizer.state_dict(),
                     'train_loss': epoch_loss.item(),
-                    'val_loss': epoch_val_loss.item()
+                    'val_loss': val_epoch_loss.item()
                 }
                 if gpu_flag:
                     state['model_state_dict'] = model.module.state_dict()
                 if epoch == epochs - 1:
-                    torch.save(state, save_path / 'best.pt')
+                    torch.save(state, save_path / 'last.pt')
                     print('Last model saved \n')
                 else:
                     # Save model checkpoint
                     torch.save(state, save_path / 'best.pt')
                     print('New best model saved \n')
-        with open(save_val / 'record{}.txt'.format(epoch), 'w') as f:
-            f.writelines(record_val)
 
 
 if __name__ == '__main__':
+    wandb.init(project="SiameseViT")
+    # define our custom x axis metric
+    wandb.define_metric("epoch_step")
+    wandb.define_metric("train_step")
+    wandb.define_metric("val_step")
+
     train()
+    wandb.finish()
