@@ -67,6 +67,8 @@ def train():
     batch_size = 64
     num_workers = 18
     margin = 0.2
+    margin_change = 0.02
+    hard_negative_threshold = 0.6
     image_size = 256
     start_epoch = 0
     seed = 42
@@ -118,14 +120,14 @@ def train():
     best_val_loss = 1000000
 
     for epoch in range(start_epoch, epochs):
-        epoch_loss = 0
+        epoch_loss, val_epoch_loss = 0, 0
+        ap_dist, an_dist, train_loss, val_loss = [], [], [], []
         # Warm-up learning rate adjustment
         if epoch < warmup_epochs:
             # Warm-up: Linearly increase or decrease LR
             # Calculate the warmup factor
             warmup_factor = epoch / warmup_epochs
-            initial_lr = start_lr / 100
-            lr = initial_lr + (start_lr - initial_lr) * warmup_factor
+            lr = final_lr + (start_lr - final_lr) * warmup_factor
             # Update optimizer's learning rate
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
@@ -154,34 +156,42 @@ def train():
             all_pos = (neg_dists - pos_dists < margin).cpu().numpy().flatten()
             valid_triplets = np.where(all_pos == 1)
 
+            # Inside training loop after calculating distances
+            total_triplets = anc_embeddings.size(0)
+            hard_triplets = (neg_dists - pos_dists < margin).sum().item()
+            hard_ratio = hard_triplets / total_triplets
+
+            # Adjust margin after each epoch or after a fixed number of iterations
+            if hard_ratio > hard_negative_threshold:
+                margin += margin_change
+            else:
+                margin -= margin_change
+            margin = max(margin, 0)  # Ensure the margin does not go negative
+
             anc_valid_embeddings = anc_embeddings[valid_triplets]
             pos_valid_embeddings = pos_embeddings[valid_triplets]
             neg_valid_embeddings = neg_embeddings[valid_triplets]
 
+            triplet_loss.margin = margin
             loss = triplet_loss.forward(
                 anchor=anc_valid_embeddings,
                 pos=pos_valid_embeddings,
                 neg=neg_valid_embeddings
             )
-            ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
-            an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
+
             # Get the current learning rate
             current_lr = optimizer.param_groups[0]['lr']
 
             # Log metrics to wandb using the unique step as the x-axis
-            wandb.log({"train_loss": loss.item(),
-                       "ap_dist": ap_dist,
-                       "an_dist": an_dist,
-                       "learning_rate": current_lr,
-                       "train_step": epoch * iter_per_epoch + batch_train})
+            train_loss.append(loss.item())
+            ap_dist.append(l2_distance.forward(anc_embeddings, pos_embeddings).mean().item())
+            an_dist.append(l2_distance.forward(anc_embeddings, neg_embeddings).mean().item())
 
             loss.backward()
             optimizer.step()
             epoch_loss += loss / len(train_loader)
-        wandb.log({'train_epoch_loss': epoch_loss.item(), 'epoch_step': epoch})
 
         with torch.no_grad():
-            val_epoch_loss = 0
             val_iteration_limit = 100  # can support up to 100 epochs for batch size 64
             for batch_val, val_data in tqdm(enumerate(val_loader), total=val_iteration_limit,
                                             desc=f'Validating, iteration {epoch + 1} out of {epochs}'):
@@ -196,22 +206,19 @@ def train():
                     batch_size=batch_size
                 )
 
-                val_loss = triplet_loss.forward(
+                triplet_loss.margin = 0.2
+                loss = triplet_loss.forward(
                     anchor=anc_embeddings,
                     pos=pos_embeddings,
                     neg=neg_embeddings
                 )
+                val_loss.append(loss.item())
+                val_epoch_loss += loss / val_iteration_limit
 
-                ap_dist = l2_distance.forward(anc_embeddings, pos_embeddings).mean().item()
-                an_dist = l2_distance.forward(anc_embeddings, neg_embeddings).mean().item()
-                wandb.log({"val_loss": val_loss.item(), "val_step": epoch * val_iteration_limit + batch_val})
-
-                val_epoch_loss += val_loss / val_iteration_limit
-            wandb.log({'val_epoch_loss': val_epoch_loss.item(), 'epoch_step': epoch})
             print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, val_epoch_loss))
 
             # Save model checkpoint for the best validation results
-            if val_epoch_loss.item() < best_val_loss or epoch == epochs - 1:
+            if val_epoch_loss.item() < best_val_loss or epoch == epochs - 1 and epoch > warmup_epochs:
                 best_val_loss = val_epoch_loss.item()
                 state = {
                     'epoch': epoch,
@@ -232,13 +239,30 @@ def train():
                     torch.save(state, save_path / 'best.pt')
                     print('New best model saved \n')
 
+        val_loss_index = 0
+        val_loss_log_frequency = iter_per_epoch // len(val_loss)  # Frequency to log each val_loss 10 times
+
+        for step in range(len(train_loss)):
+            log_data = {
+                "training_loss": train_loss[step],
+                "ap_dist": ap_dist[step],
+                "an_dist": an_dist[step],
+                "epoch_training_loss": epoch_loss,  # Log epoch loss for each step
+                "epoch_validation_loss": val_epoch_loss,  # Log validation epoch loss for each step
+            }
+
+            # Check if it's time to log the next validation loss
+            if step % val_loss_log_frequency == 0 and step // val_loss_log_frequency < len(val_loss):
+                val_loss_index = step // val_loss_log_frequency
+
+            # Assuming we are to log the current validation loss 10 times within its designated interval
+            if (step % val_loss_log_frequency) < 10:
+                log_data["val_loss"] = val_loss[val_loss_index]
+
+            wandb.log(log_data)
+
 
 if __name__ == '__main__':
     wandb.init(project="SiameseViT")
-    # define our custom x axis metric
-    wandb.define_metric("epoch_step")
-    wandb.define_metric("train_step")
-    wandb.define_metric("val_step")
-
     train()
     wandb.finish()

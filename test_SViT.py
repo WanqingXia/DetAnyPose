@@ -1,6 +1,6 @@
 import os
 import random
-
+import re
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch.nn.modules.distance import PairwiseDistance
 import json
 from PIL import Image
-
+import matplotlib.pyplot as plt
 
 from utils.dataloader import create_dataloader
 from utils.process_data import create_folder
@@ -77,7 +77,7 @@ def forward_pass(imgs, model, batch_size):
 
 def test_SViT():
     # load trained model
-    model_path = './results/03-21_00:15/best.pt'
+    model_path = './results/03-25_14:29/best.pt'
 
     embedding_dimension = 512
     image_size = 256
@@ -140,12 +140,21 @@ def test_SViT():
         untrained_results = inference(test_loader, model, gen_content, batch_size, inference_size, 'untrained')
 
         # Writing JSON data
-        with open('{}/trained_results.json\n'.format(model_path.split('/best')[0], 'w')) as f:
+        pattern = r'/[^/]*\.pt$'
+        trained_name = re.sub(pattern, '/trained_results.json', model_path)
+        untrained_name = re.sub(pattern, '/untrained_results.json', model_path)
+        trained_graph = re.sub(pattern, '/trained_hist.png', model_path)
+        untrained_graph = re.sub(pattern, '/untrained_hist.png', model_path)
+
+        draw_histogram(trained_results, trained_graph)
+        draw_histogram(untrained_results, untrained_graph)
+
+        with open(trained_name, 'w') as f:
             json.dump(trained_results, f, indent=4)
-        print('Trained result saved to {}/trained_results.json'.format(model_path.split('/best')[0]))
-        with open('{}/untrained_results.json\n'.format(model_path.split('/best')[0], 'w')) as f:
+        print('Trained result saved to {}'.format(untrained_name))
+        with open(untrained_name, 'w') as f:
             json.dump(untrained_results, f, indent=4)
-        print('Untrained result saved to {}/untrained_results.json'.format(model_path.split('/best')[0]))
+        print('Untrained result saved to {}'.format(untrained_name))
 
 
 def inference(dataloader, model, gen_content, batch_size, inference_size, source):
@@ -184,6 +193,32 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
             results.append(new_object)
         if batch == inference_size / batch_size:
             return results
+
+
+def draw_histogram(json_result, save_name):
+    differences = []
+    # Iterate through each JSON object in the file
+    for item in json_result:
+        # Extract the third numbers from the 'angular_dist_sgen' and 'angular_dist_mgen'
+        third_num_sgen = item['angular_dist_sgen'][2]
+        third_num_mgen = item['angular_dist_mgen'][2]
+        # Calculate the absolute difference
+        diff = abs(third_num_sgen - third_num_mgen)
+        # Append the difference to the list
+        differences.append(diff)
+    # Create bins for the range 0-1 to 179-180
+    bins = np.arange(0, 181, 1)
+    # Calculate the histogram
+    hist, bin_edges = np.histogram(differences, bins=bins)
+    # Draw the bar plot
+    plt.figure(figsize=(10, 6))
+    plt.bar(bin_edges[:-1], hist, width=1, edgecolor='black')
+    plt.xlabel('Difference in Degrees')
+    plt.ylabel('Frequency')
+    plt.title('Frequency of Differences Between "angular_dist_sgen" and "angular_dist_mgen"')
+    plt.xticks(np.arange(0, 181, 10))
+    # Save the plot to a file
+    plt.savefig(save_name, dpi=300)  # Saves the plot as a PNG file with 300 DPI
 
 
 if __name__ == '__main__':
