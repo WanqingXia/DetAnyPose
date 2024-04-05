@@ -90,7 +90,8 @@ def train():
         dim=1024,
         depth=6,
         heads=16,
-        mlp_dim=2048
+        mlp_dim=2048,
+        channels=4
     )
 
     model, gpu_flag = set_model_gpu_mode(model)
@@ -142,7 +143,10 @@ def train():
             l2_distance = PairwiseDistance(p=2)
             optimizer.zero_grad()
 
-            concatenated_data = torch.cat((train_data[0], train_data[1], train_data[2]), dim=0)
+            RGBD_anc = torch.cat((train_data[0], train_data[3]/10000), dim=1)
+            RGBD_pos = torch.cat((train_data[1], train_data[4]/10000), dim=1)
+            RGBD_neg = torch.cat((train_data[2], train_data[5]/10000), dim=1)
+            concatenated_data = torch.cat((RGBD_anc, RGBD_pos, RGBD_neg), dim=0)
             anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
                 imgs=concatenated_data,
                 model=model,
@@ -198,7 +202,11 @@ def train():
 
                 if batch_val == val_iteration_limit:
                     break
-                concatenated_data = torch.cat((val_data[0], val_data[1], val_data[2]), dim=0)
+
+                RGBD_anc = torch.cat((val_data[0], val_data[3]/10000), dim=1)
+                RGBD_pos = torch.cat((val_data[1], val_data[4]/10000), dim=1)
+                RGBD_neg = torch.cat((val_data[2], val_data[5]/10000), dim=1)
+                concatenated_data = torch.cat((RGBD_anc, RGBD_pos, RGBD_neg), dim=0)
 
                 anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
                     imgs=concatenated_data,
@@ -218,26 +226,27 @@ def train():
             print('The Triplet loss for Validation epoch {} is {}.'.format(epoch + 1, val_epoch_loss))
 
             # Save model checkpoint for the best validation results
-            if val_epoch_loss.item() < best_val_loss or epoch == epochs - 1 and epoch > warmup_epochs:
-                best_val_loss = val_epoch_loss.item()
-                state = {
-                    'epoch': epoch,
-                    'embedding_dimension': embedding_dimension,
-                    'batch_size_training': batch_size,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_model_state_dict': optimizer.state_dict(),
-                    'train_loss': epoch_loss.item(),
-                    'val_loss': val_epoch_loss.item()
-                }
-                if gpu_flag:
-                    state['model_state_dict'] = model.module.state_dict()
-                if epoch == epochs - 1:
-                    torch.save(state, save_path / 'last.pt')
-                    print('Last model saved \n')
-                else:
-                    # Save model checkpoint
-                    torch.save(state, save_path / 'best.pt')
-                    print('New best model saved \n')
+            if val_epoch_loss.item() < best_val_loss or epoch == epochs - 1:
+                if epoch >= warmup_epochs:
+                    best_val_loss = val_epoch_loss.item()
+                    state = {
+                        'epoch': epoch,
+                        'embedding_dimension': embedding_dimension,
+                        'batch_size_training': batch_size,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_model_state_dict': optimizer.state_dict(),
+                        'train_loss': epoch_loss.item(),
+                        'val_loss': val_epoch_loss.item()
+                    }
+                    if gpu_flag:
+                        state['model_state_dict'] = model.module.state_dict()
+                    if epoch == epochs - 1:
+                        torch.save(state, save_path / 'last.pt')
+                        print('Last model saved \n')
+                    else:
+                        # Save model checkpoint
+                        torch.save(state, save_path / 'best.pt')
+                        print('New best model saved \n')
 
         val_loss_index = 0
         val_loss_log_frequency = iter_per_epoch // len(val_loss)  # Frequency to log each val_loss 10 times

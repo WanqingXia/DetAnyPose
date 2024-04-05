@@ -18,8 +18,6 @@ from utils.dataloader import create_dataloader
 from utils.process_data import create_folder
 from losses.triplet_loss import TripletLoss
 from models.simple_vit import SimpleViT
-import torch.nn.functional as F
-
 
 def angle_between_rotation_matrices(m1, m2):
     def angle_between_vectors(v1, v2):
@@ -77,85 +75,123 @@ def forward_pass(imgs, model, batch_size):
     return anc_embeddings, pos_embeddings, neg_embeddings, model
 
 
-def test_SViT():
-    # load trained model
-    model_path = './results/patch32_RGBD/best.pt'
+def load_all_caches(cache_dir):
+    all_caches = {}  # This dictionary will hold all cache contents
 
-    embedding_dimension = 512
-    image_size = 256
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SimpleViT(
-        image_size=image_size,
-        patch_size=32,
-        num_classes=embedding_dimension,
-        dim=1024,
-        depth=6,
-        heads=16,
-        mlp_dim=2048,
-        channels=4
-    )
-    checkpoint = torch.load(model_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to(device)
-    model.eval()
+    # Iterate through all files in the cache directory
+    for filename in os.listdir(cache_dir):
+        # Construct the full file path
+        file_path = os.path.join(cache_dir, filename)
+
+        # Check if the file is a cache file (adjust the condition based on your cache file naming pattern)
+        if filename.endswith("_cache.pt"):
+            # Extract folder_name from the filename (adjust the slicing according to your naming pattern)
+            folder_name = filename[:-len("_cache.pt")]
+
+            # Load the cache file
+            cache_content = torch.load(file_path)
+
+            # Add the loaded content to the all_caches dict under the extracted folder_name
+            all_caches[folder_name] = cache_content
+
+    return all_caches
+
+
+def test_dino():
+    # load trained model
+    model_path = './results/dino'
+    cache_dir = "./cache"  # Define the cache directory
 
     # create dataloader for testing
     dataroot = '/home/iai-lab/Documents/YCB_Video_Dataset'
-    batch_size = 50  # modify base on your device
-    num_workers = 18  # modify base on your device
+    batch_size = 1  # modify base on your device
+    image_size = 256
+    num_workers = 18
     inference_size = 1000  # 1000 pairs from train and test
-    train_loader, train_set = create_dataloader(dataroot,
-                                                type='train',
-                                                imgsz=image_size,
-                                                batch_size=batch_size,
-                                                workers=num_workers)
-    test_loader, test_set = create_dataloader(dataroot,
-                                              type='test',
-                                              imgsz=image_size,
-                                              batch_size=batch_size,
-                                              workers=num_workers)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14_reg').to(device)
 
     gen_content = read_folders_contents(dataroot)
+
     # Loop through each string and sub-dict
     with torch.no_grad():
-        for folder_name, sub_dict in tqdm(gen_content.items()):
-            # For each sub-dict, get the path and ndarray
-            for path, pose in sub_dict.items():
-                # load the img
-                base_name = path.name.split('-')[0]
-                # Create the new file name
-                img_file_path = path.parent / (base_name + '-color.png')
-                img = np.array(Image.open(img_file_path))
-                img = img.transpose((2, 0, 1))  # HWC to CHW
-                img = np.ascontiguousarray(img).astype(np.float32)
-                img = torch.from_numpy(img)
-                img = img.to(device)
-                img = img.unsqueeze(0)
-                dep_file_path = path.parent / (base_name + '-depth.png')
-                dep = np.array(Image.open(dep_file_path)) / 10000
-                dep = np.expand_dims(dep, axis=0)  # Add channel dimension
-                dep = np.ascontiguousarray(dep).astype(np.float32)
-                dep = torch.from_numpy(dep)
-                dep = dep.to(device)
-                dep = dep.unsqueeze(0)  # Add batch dimension
-                # Concatenate RGB and depth images along the channel dimension to form an RGBD image
-                rgbd = torch.cat((img, dep), dim=1)
-                embedding = model(rgbd)
+        for folder_name in tqdm(
+                list(gen_content.keys())):  # Use list() to avoid RuntimeError for changing dict size during iteration
+            # Construct the expected cache file name or path based on folder_name
+            # This is an example; adjust the pattern to match how your cache files are named
+            cache_file_path = os.path.join(cache_dir, f"{folder_name}_cache.pt")
 
-                # Combine the ndarray and the 1D array into a list
-                combined_list = [pose, embedding]
-                # Save it back to the original structure
-                # Each sub-dict now has a path and a list of ndarray and 1D array
-                sub_dict[path] = combined_list
+            # Check if the cache file exists
+            if os.path.exists(cache_file_path):
+                print(f"Cache found for {folder_name}. Removing from processing queue.")
+                # Remove the entry from gen_content
+                del gen_content[folder_name]
 
-        trained_results = inference(train_loader, model, gen_content, batch_size, inference_size, 'trained')
-        untrained_results = inference(test_loader, model, gen_content, batch_size, inference_size, 'untrained')
+    # Loop through each string and sub-dict
+    if gen_content is not None:
+        with torch.no_grad():
+            for folder_name, sub_dict in tqdm(gen_content.items()):
+                # For each sub-dict, get the path and ndarray
+                processed_sub_dict = {}
+                for path, pose in sub_dict.items():
+                    # load the img
+                    base_name = path.name.split('-')[0]
+                    # Create the new file name
+                    img_file_path = path.parent / (base_name + '-color.png')
+                    img = np.array(Image.open(img_file_path))
+                    img = img.transpose((2, 0, 1))  # HWC to CHW
+                    img = np.ascontiguousarray(img).astype(np.float32)
+                    img = torch.from_numpy(img)
+                    img = img.to(device)
+                    img = img.unsqueeze(0)
+                    img = img[:, :, 16:240, 16:240]
+                    # dep_file_path = path.parent / (base_name + '-depth.png')
+                    # dep = np.array(Image.open(dep_file_path)) / 10000
+                    # dep = np.expand_dims(dep, axis=0)  # Add channel dimension
+                    # dep = np.ascontiguousarray(dep).astype(np.float32)
+                    # dep = torch.from_numpy(dep)
+                    # dep = dep.to(device)
+                    # dep = dep.unsqueeze(0)  # Add batch dimension
+                    # # Concatenate RGB and depth images along the channel dimension to form an RGBD image
+                    # rgbd = torch.cat((img, dep), dim=1)
+                    embedding = model(img)
 
+                    # Combine the ndarray and the 1D array into a list
+                    combined_list = [pose, embedding.cpu().numpy()]  # Move data to CPU before converting to numpy
+                    processed_sub_dict[path] = combined_list
+
+                    # Suggest to the GPU to free up unused memory
+                    torch.cuda.empty_cache()
+
+                # Save the processed_sub_dict to a file after each folder is processed
+                cache_file_path = os.path.join(cache_dir, f"{folder_name}_cache.pt")
+                torch.save(processed_sub_dict, cache_file_path)
+                print(f"Saved cache for folder {folder_name} at {cache_file_path}")
+
+                # Optionally clear processed_sub_dict to free up memory
+                del processed_sub_dict
+
+        embedded_gen_contents = load_all_caches(cache_dir)
+
+        train_loader, train_set = create_dataloader(dataroot,
+                                                    type='train',
+                                                    imgsz=image_size,
+                                                    batch_size=batch_size,
+                                                    workers=num_workers)
+        trained_results = inference(train_loader, model, device, embedded_gen_contents, batch_size, inference_size, 'trained')
+        del train_loader, train_set
+        test_loader, test_set = create_dataloader(dataroot,
+                                                  type='test',
+                                                  imgsz=image_size,
+                                                  batch_size=batch_size,
+                                                  workers=num_workers)
+        untrained_results = inference(test_loader, model, device, embedded_gen_contents, batch_size, inference_size, 'untrained')
+        del test_loader, test_set
         # Writing JSON data
-        trained_json = model_path.split('.pt')[0] + '_trained_results.json'
-        untrained_json = model_path.split('.pt')[0] + '_untrained_results.json'
-        trained_graph = model_path.split('.pt')[0] + '_trained_hist.png'
-        untrained_graph = model_path.split('.pt')[0] + '_untrained_hist.png'
+        trained_json = model_path + '/trained_results.json'
+        untrained_json = model_path + '/untrained_results.json'
+        trained_graph = model_path + '/trained_hist.png'
+        untrained_graph = model_path + '/untrained_hist.png'
 
         draw_histogram(trained_results, trained_graph)
         draw_histogram(untrained_results, untrained_graph)
@@ -168,17 +204,16 @@ def test_SViT():
         print('Untrained result saved to {}'.format(untrained_json))
 
 
-def inference(dataloader, model, gen_content, batch_size, inference_size, source):
+def inference(dataloader, model, device, gen_content, batch_size, inference_size, source):
     results = []
     l2_distance = PairwiseDistance(p=2)
     # we first process the pairs in the dataloader to get ground truth
     for batch, data in tqdm(enumerate(dataloader), total=min(inference_size / batch_size, len(dataloader)),
                                         desc=f'Processing data for {source} data'):
-
-        RGBD_anc = torch.cat((data[0], data[3] / 10000), dim=1)
-        RGBD_pos = torch.cat((data[1], data[4] / 10000), dim=1)
-        RGBD_neg = torch.cat((data[2], data[5] / 10000), dim=1)
-        concatenated_data = torch.cat((RGBD_anc, RGBD_pos, RGBD_neg), dim=0)
+        anc_img = data[0][:, :, 16:240, 16:240]
+        pos_img = data[1][:, :, 16:240, 16:240]
+        neg_img = data[2][:, :, 16:240, 16:240]
+        concatenated_data = torch.cat((anc_img, pos_img, neg_img), dim=0)
         anc_embeddings, pos_embeddings, neg_embeddings, model = forward_pass(
             imgs=concatenated_data,
             model=model,
@@ -189,7 +224,7 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
                 zip(anc_embeddings, pos_embeddings, data[6], data[7], data[8][0], data[8][1], data[8][2])):
             smallest_dist, s_path, s_pose = 1000, [], []
             for path, c_list in gen_content[obj_name].items():
-                temp_dist = F.cosine_similarity(anc.unsqueeze(0), c_list[1], dim=1).item()
+                temp_dist = l2_distance.forward(anc, torch.from_numpy(c_list[1]).to(device))
                 if temp_dist < smallest_dist:
                     s_path = path
                     smallest_dist = temp_dist
@@ -199,10 +234,10 @@ def inference(dataloader, model, gen_content, batch_size, inference_size, source
                 "original": str(ori_path),
                 "pre_selected_gen": str(gen_path),
                 "angular_dist_sgen": angle_between_rotation_matrices(ori_pose, gen_pose),
-                "distance_sgen": round(F.cosine_similarity(anc.unsqueeze(0), pos.unsqueeze(0), dim=1).item(), 3),
+                "distance_sgen": round(l2_distance.forward(anc, pos).item(), 3),
                 "mod_selected_gen": str(s_path),
                 "angular_dist_mgen": angle_between_rotation_matrices(ori_pose, s_pose),
-                "distance_mgen": round(smallest_dist, 3),
+                "distance_mgen": round(smallest_dist.item(), 3),
             }
             results.append(new_object)
         if batch == inference_size / batch_size:
@@ -236,4 +271,4 @@ def draw_histogram(json_result, save_name):
 
 
 if __name__ == '__main__':
-    test_SViT()
+    test_dino()
