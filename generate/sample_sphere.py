@@ -49,7 +49,8 @@ def angular_distance(point1, point2):
 
 if __name__ == "__main__":
     # Generate 4000 points
-    points = fibonacci_sphere(4000, 1)  # radius is 1 for simplicity
+    radius = 5
+    points = fibonacci_sphere(42, radius)  # radius is 1 for simplicity
 
     # Calculate distance matrix
     dist_matrix = distance_matrix(points, points)
@@ -71,3 +72,27 @@ if __name__ == "__main__":
     print("min angular distance: ", min_angular_dist)
     print("max angular distance:", max_angular_dist)
     print("mean angular distance: ", mean_angular_dist)
+
+    # Unpack points for plotting
+    xs, ys, zs = zip(*points)
+
+    # Plot
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Draw sphere
+    u, v = np.mgrid[0:2 * np.pi:20j, 0:np.pi:10j]
+    x = radius * np.cos(u) * np.sin(v)
+    y = radius * np.sin(u) * np.sin(v)
+    z = radius * np.cos(v)
+    ax.plot_wireframe(x, y, z, color="r", alpha=0.1)
+
+    # Draw points
+    ax.scatter(xs, ys, zs, color="b", s=1)
+
+    # Labels and show
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('Fibonacci Sphere with Points')
+    plt.show()

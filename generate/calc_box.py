@@ -37,8 +37,7 @@ def calc_box(dataPath):
 
 if __name__ == "__main__":
     paths, diags = calc_box('/home/wanqing/YCB_Video_Dataset/models')
-    names = ['007_tuna_fish_can', '009_gelatin_box', '010_potted_meat_can', '035_power_drill', '040_large_marker',
-             '051_large_clamp', '052_extra_large_clamp']
+    names = ['052_extra_large_clamp']
     with open(os.path.dirname(os.path.abspath(__file__)) + "/diameters.txt", "w") as f:
         for path, diag in zip(paths, diags):
             if not any(substring in path for substring in names):

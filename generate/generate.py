@@ -49,6 +49,17 @@ def invert_rt_matrix(rt_matrix):
     rt_matrix_inv[:3, :3] = R_inv
     rt_matrix_inv[:3, 3] = T_inv
 
+    # Define the rotation matrix for 180 degree rotation about Z axis
+    rotation_matrix = np.array([
+        [-1, 0, 0, 0],
+        [0, -1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+    # Rotate the obj_matrix by multiplying with the rotation matrix
+    rt_matrix_inv = np.dot(rotation_matrix, rt_matrix_inv)
+
     return rt_matrix_inv
 
 
@@ -123,13 +134,13 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
     objs = bproc.loader.load_obj(obj_path)
 
     # Sample camera locations by fibonacci lattice
-    cam_points = fibonacci_sample_sphere(radius=diag_length * 6, samples=4000)
+    cam_points = fibonacci_sample_sphere(radius=diag_length * 6, samples=42)
 
     # define a light and set its location and energy level
     light = bproc.types.Light()
 
     # Set the camera intrinsics to match YCB video dataset
-    image_size = 256
+    image_size = 224
     camera_intrinsics = np.array([
         [1078, 0, (image_size-1)/2],
         [0, 1078, (image_size-1)/2],
@@ -185,7 +196,7 @@ def render(obj_path: str, diag_length: float, save_path: str, flag: bool):
                 depth_original = np.array(h5f["depth"])
                 mask = np.array(h5f["depth"]) < 100
                 depth_enlarged = depth_original * mask * 10000
-                writer = png.Writer(width=256, height=256, bitdepth=16, greyscale=True)
+                writer = png.Writer(width=image_size, height=image_size, bitdepth=16, greyscale=True)
                 writer.write(im, depth_enlarged.astype(np.int16))
                 masked_img = colours * np.expand_dims(mask, axis=-1)
                 cv2.imwrite(os.path.join(save_path, f'{padded_num}-color.png'), masked_img)
@@ -209,7 +220,7 @@ if __name__ == "__main__":
     for obj_path, diag_l in zip(paths, np.float64(diags)):
         print(obj_path, diag_l)
         # create an output folder for each object model
-        save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'YCB_objectst')
+        save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'viewpoints_42')
         # render image for each view point
         render(obj_path, diag_l, save_path, first_execution_flag)
         first_execution_flag = False
