@@ -2,8 +2,6 @@
 # Refer from https://github.com/IDEA-Research/Grounded-Segment-Anything
 import argparse
 import os
-
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -35,7 +33,6 @@ except ImportError:
 import sys
 
 from mmengine.config import Config
-from mmengine.utils import ProgressBar
 from PIL import Image
 # segment anything
 from segment_anything import SamPredictor, sam_model_registry
@@ -51,9 +48,11 @@ try:
 except ImportError:
     maskrcnn_benchmark = None
 
-class mmdet_sam:
+class mmdet_sam_model:
     def __init__(self):
-        self.image = ""  # path to image file, no default specified
+        self.image = None
+        self.image_path = ""
+        self.pred_dict = {}
         self.det_config = "configs/Detic_LI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.py"  # path to det config file, no default specified
         self.det_weight = "../models/detic_centernet2_swin-b_fpn_4x_lvis-coco-in21k_20230120-0d301978.pth"  # path to det weight file, no default specified
         self.only_det = False  # Default is the equivalent of not using --only-det
@@ -66,10 +65,11 @@ class mmdet_sam:
         self.sam_device = 'cuda:0'  # Default device used for sam inference
         self.cpu_off_load = False  # Default is the equivalent of not using --cpu-off-load
         self.use_detic_mask = False  # Default is the equivalent of not using --use-detic-mask
-        self.text_prompt = None  # text prompt, no default specified
+        self.text_prompt = ""  # text prompt, no default specified
         self.text_thr = 0.25  # Default text threshold
         self.apply_original_groudingdino = False  # Default is the equivalent of not using --apply-original-groudingdino
         self.apply_other_text = False  # Default is the equivalent of not using --apply-other-text
+        os.makedirs(self.out_dir, exist_ok=True)
 
         if groundingdino is None and maskrcnn_benchmark is None and mmdet is None:
             raise RuntimeError('detection model is not installed,\
@@ -90,6 +90,21 @@ class mmdet_sam:
             if not self.cpu_off_load:
                 self.sam_model.mode = self.sam_model.model.to(self.sam_device)
 
+    def build_detecter(self):
+        config = Config.fromfile(self.det_config)
+        if 'init_cfg' in config.model.backbone:
+            config.model.backbone.init_cfg = None
+        if 'detic' in self.det_config and not self.use_detic_mask:
+            config.model.roi_head.mask_head = None
+        detecter = init_detector(
+            config, self.det_weight, device='cpu', cfg_options={})
+        return detecter
+
+    def run_detector(self, image, image_path, prompt):
+        self.image = image  # image need to be read by cv2 and convert to RGB format
+        self.image_path = image_path
+        self.text_prompt = prompt
+
         if 'Detic' in self.det_config:
             from projects.Detic.detic.utils import get_text_embeddings
             text_prompt = self.text_prompt
@@ -104,271 +119,48 @@ class mmdet_sam:
             embedding = get_text_embeddings(custom_vocabulary=custom_vocabulary)
             self._reset_cls_layer_weight(embedding)
 
-        os.makedirs(self.out_dir, exist_ok=True)
+        result = inference_detector(self.det_model, self.image_path)
+        pred_instances = result.pred_instances[
+            result.pred_instances.scores > self.box_thr]
 
-        files, source_type = get_file_list(self.image)
-        progress_bar = ProgressBar(len(files))
-        for image_path in files:
-            save_path = os.path.join(self.out_dir, self.text_prompt + '.' + os.path.basename(image_path).split(".")[1])
-            det_model, pred_dict = run_detector(det_model, image_path, args)
+        self.pred_dict['boxes'] = pred_instances.bboxes
+        self.pred_dict['scores'] = pred_instances.scores.cpu().numpy().tolist()
+        self.pred_dict['labels'] = [
+            self.det_model.dataset_meta['classes'][label]
+            for label in pred_instances.labels
+        ]
+        if self.use_detic_mask:
+            self.pred_dict['masks'] = pred_instances.masks
 
-            if pred_dict['boxes'].shape[0] == 0:
-                print('No objects detected !')
-                continue
+        if self.pred_dict['boxes'].shape[0] == 0:
+            print('No objects detected !')
+            return self.pred_dict
 
-            image = cv2.imread(image_path)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        if not self.only_det:
+            self.sam_model.set_image(self.image)
 
-            if not only_det:
+            transformed_boxes = self.sam_model.transform.apply_boxes_torch(
+                self.pred_dict['boxes'], image.shape[:2])
+            transformed_boxes = transformed_boxes.to(self.sam_model.model.device)
 
-                if cpu_off_load:
-                    sam_model.model = sam_model.model.to(args.sam_device)
+            masks, _, _ = self.sam_model.predict_torch(
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes,
+                multimask_output=False)
+            self.pred_dict['masks'] = masks
 
-                sam_model.set_image(image)
+        return self.pred_dict
 
-                transformed_boxes = sam_model.transform.apply_boxes_torch(
-                    pred_dict['boxes'], image.shape[:2])
-                transformed_boxes = transformed_boxes.to(sam_model.model.device)
-
-                masks, _, _ = sam_model.predict_torch(
-                    point_coords=None,
-                    point_labels=None,
-                    boxes=transformed_boxes,
-                    multimask_output=False)
-                pred_dict['masks'] = masks
-
-                if cpu_off_load:
-                    sam_model.model = sam_model.model.to('cpu')
-            for i in range(pred_dict['masks'].size(0)):
-                # Normalize the tensor to be in the range [0, 255]
-                mask = pred_dict['masks'][i].mul(255).byte()
-                # Convert to PIL Image
-                img = Image.fromarray(mask.squeeze().cpu().numpy(), 'L')
-                # Save image with the channel number in the name
-                img.save(f'./mask_channel_{i}.png')
-
-            draw_and_save(
-                image, pred_dict, save_path, show_label=not args.not_show_label)
-            progress_bar.update()
-
-    def build_detecter(self):
-        config = Config.fromfile(self.det_config)
-        if 'init_cfg' in config.model.backbone:
-            config.model.backbone.init_cfg = None
-        if 'detic' in self.det_config and not self.use_detic_mask:
-            config.model.roi_head.mask_head = None
-        detecter = init_detector(
-            config, self.det_weight, device='cpu', cfg_options={})
-        return detecter
-
-    def run_detector(model, image_path, args):
-        pred_dict = {}
-
-        if args.cpu_off_load:
-            if 'glip' in args.det_config:
-                model.model = model.model.to(args.det_device)
-                model.device = args.det_device
-            else:
-                model = model.to(args.det_device)
-
-        if 'GroundingDINO' in args.det_config:
-            image_pil = Image.open(image_path).convert('RGB')  # load image
-            image_pil = apply_exif_orientation(image_pil)
-            image, _ = grounding_dino_transform(image_pil, None)  # 3, h, w
-
-            text_prompt = args.text_prompt
-            text_prompt = text_prompt.lower()
-            text_prompt = text_prompt.strip()
-            if not text_prompt.endswith('.'):
-                text_prompt = text_prompt + '.'
-
-            # Original GroundingDINO use text-thr to get class name,
-            # the result will always result in categories that we don't want,
-            # so we provide a category-restricted approach to address this
-
-            if not args.apply_original_groudingdino:
-                # custom label name
-                custom_vocabulary = text_prompt[:-1].split('.')
-                label_name = [c.strip() for c in custom_vocabulary]
-                tokens_positive = []
-                start_i = 0
-                separation_tokens = ' . '
-                for _index, label in enumerate(label_name):
-                    end_i = start_i + len(label)
-                    tokens_positive.append([(start_i, end_i)])
-                    if _index != len(label_name) - 1:
-                        start_i = end_i + len(separation_tokens)
-                tokenizer = get_tokenlizer.get_tokenlizer('bert-base-uncased')
-                tokenized = tokenizer(
-                    args.text_prompt, padding='longest', return_tensors='pt')
-                positive_map_label_to_token = create_positive_dict(
-                    tokenized, tokens_positive, list(range(len(label_name))))
-
-            image = image.to(next(model.parameters()).device)
-
-            with torch.no_grad():
-                outputs = model(image[None], captions=[text_prompt])
-
-            logits = outputs['pred_logits'].cpu().sigmoid()[0]  # (nq, 256)
-            boxes = outputs['pred_boxes'].cpu()[0]  # (nq, 4)
-
-            if not args.apply_original_groudingdino:
-                logits = convert_grounding_to_od_logits(
-                    logits, len(label_name),
-                    positive_map_label_to_token)  # [N, num_classes]
-
-            # filter output
-            logits_filt = logits.clone()
-            boxes_filt = boxes.clone()
-            filt_mask = logits_filt.max(dim=1)[0] > args.box_thr
-            logits_filt = logits_filt[filt_mask]  # num_filt, 256
-            boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
-
-            if args.apply_original_groudingdino:
-                # get phrase
-                tokenlizer = model.tokenizer
-                tokenized = tokenlizer(text_prompt)
-                # build pred
-                pred_labels = []
-                pred_scores = []
-                for logit, box in zip(logits_filt, boxes_filt):
-                    pred_phrase = get_phrases_from_posmap(logit > args.text_thr,
-                                                          tokenized, tokenlizer)
-                    pred_labels.append(pred_phrase)
-                    pred_scores.append(str(logit.max().item())[:4])
-            else:
-                scores, pred_phrase_idxs = logits_filt.max(1)
-                # build pred
-                pred_labels = []
-                pred_scores = []
-                for score, pred_phrase_idx in zip(scores, pred_phrase_idxs):
-                    pred_labels.append(label_name[pred_phrase_idx])
-                    pred_scores.append(str(score.item())[:4])
-
-            pred_dict['labels'] = pred_labels
-            pred_dict['scores'] = pred_scores
-
-            size = image_pil.size
-            H, W = size[1], size[0]
-            for i in range(boxes_filt.size(0)):
-                boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
-                boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
-                boxes_filt[i][2:] += boxes_filt[i][:2]
-            pred_dict['boxes'] = boxes_filt
-        elif 'glip' in args.det_config:
-            image = cv2.imread(image_path)
-            # caption
-            text_prompt = args.text_prompt
-            text_prompt = text_prompt.lower()
-            text_prompt = text_prompt.strip()
-            if not text_prompt.endswith('.') and not args.apply_other_text:
-                text_prompt = text_prompt + '.'
-
-            custom_vocabulary = text_prompt[:-1].split('.')
-            label_name = [c.strip() for c in custom_vocabulary]
-
-            # top_predictions = model.inference(image, label_name)
-            if args.apply_other_text:
-                top_predictions = model.inference(
-                    image, args.text_prompt, use_other_text=True)
-            else:
-                top_predictions = model.inference(
-                    image, args.text_prompt, use_other_text=False)
-            scores = top_predictions.get_field('scores').tolist()
-            labels = top_predictions.get_field('labels').tolist()
-
-            if args.apply_other_text:
-                new_labels = []
-                if model.entities and model.plus:
-                    for i in labels:
-                        if i <= len(model.entities):
-                            new_labels.append(model.entities[i - model.plus])
-                        else:
-                            new_labels.append('object')
-                else:
-                    new_labels = ['object' for i in labels]
-            else:
-                new_labels = [label_name[i] for i in labels]
-
-            pred_dict['labels'] = new_labels
-            pred_dict['scores'] = scores
-            pred_dict['boxes'] = top_predictions.bbox
-        else:
-            result = inference_detector(model, image_path)
-            pred_instances = result.pred_instances[
-                result.pred_instances.scores > args.box_thr]
-
-            pred_dict['boxes'] = pred_instances.bboxes
-            pred_dict['scores'] = pred_instances.scores.cpu().numpy().tolist()
-            pred_dict['labels'] = [
-                model.dataset_meta['classes'][label]
-                for label in pred_instances.labels
-            ]
-            if args.use_detic_mask:
-                pred_dict['masks'] = pred_instances.masks
-
-        if args.cpu_off_load:
-            if 'glip' in args.det_config:
-                model.model = model.model.to('cpu')
-                model.device = 'cpu'
-            else:
-                model = model.to('cpu')
-        return model, pred_dict
-
-
-    def create_positive_dict(self, tokenized, tokens_positive, labels):
-        """construct a dictionary such that positive_map[i] = j,
-        if token i is mapped to j label"""
-
-        positive_map_label_to_token = {}
-
-        for j, tok_list in enumerate(tokens_positive):
-            for (beg, end) in tok_list:
-                beg_pos = tokenized.char_to_token(beg)
-                end_pos = tokenized.char_to_token(end - 1)
-
-                assert beg_pos is not None and end_pos is not None
-                positive_map_label_to_token[labels[j]] = []
-                for i in range(beg_pos, end_pos + 1):
-                    positive_map_label_to_token[labels[j]].append(i)
-
-        return positive_map_label_to_token
-
-    def convert_grounding_to_od_logits(self, logits,
-                                       num_classes,
-                                       positive_map,
-                                       score_agg='MEAN'):
-        """
-        logits: (num_query, max_seq_len)
-        num_classes: 80 for COCO
-        """
-        assert logits.ndim == 2
-        assert positive_map is not None
-        scores = torch.zeros(logits.shape[0], num_classes).to(logits.device)
-        # 256 -> 80, average for each class
-        # score aggregation method
-        if score_agg == 'MEAN':  # True
-            for label_j in positive_map:
-                scores[:, label_j] = logits[:,
-                                     torch.LongTensor(positive_map[label_j]
-                                                      )].mean(-1)
-        else:
-            raise NotImplementedError
-        return scores
-
-    def draw_and_save(self, image,
-                      pred_dict,
-                      save_path,
-                      random_color=True,
-                      show_label=True):
+    def draw_outcome(self, image, pred, show_result=False, save_copy=False, random_color=True, show_label=True):
         plt.figure(figsize=(10, 10))
         plt.imshow(image)
+        self.pred_dict = pred
+        with_mask = 'masks' in self.pred_dict
+        labels = self.pred_dict['labels']
+        scores = self.pred_dict['scores']
 
-        with_mask = 'masks' in pred_dict
-        labels = pred_dict['labels']
-        scores = pred_dict['scores']
-
-        bboxes = pred_dict['boxes'].cpu().numpy()
+        bboxes = self.pred_dict['boxes'].cpu().numpy()
         for box, label, score in zip(bboxes, labels, scores):
             x0, y0 = box[0], box[1]
             w, h = box[2] - box[0], box[3] - box[1]
@@ -388,11 +180,10 @@ class mmdet_sam:
                         x0, y0, f'{label}|{round(score, 2)}', color='green')
 
         if with_mask:
-            masks = pred_dict['masks'].cpu().numpy()
+            masks = self.pred_dict['masks'].cpu().numpy()
             for mask in masks:
                 if random_color:
-                    color = np.concatenate(
-                        [np.random.random(3), np.array([0.6])], axis=0)
+                    color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
                 else:
                     color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
                 h, w = mask.shape[-2:]
@@ -400,7 +191,11 @@ class mmdet_sam:
                 plt.gca().imshow(mask_image)
 
         plt.axis('off')
-        plt.savefig(save_path)
+        if show_result:
+            plt.show()
+        if save_copy:
+            save_path = os.path.join(self.out_dir, self.text_prompt + '.png')
+            plt.savefig(save_path)
 
     def _reset_cls_layer_weight(self, weight):
         if type(weight) == str:
