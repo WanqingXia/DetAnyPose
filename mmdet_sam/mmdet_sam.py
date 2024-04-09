@@ -48,17 +48,18 @@ try:
 except ImportError:
     maskrcnn_benchmark = None
 
-class mmdet_sam_model:
+
+class MMDet_SAM:
     def __init__(self):
         self.image = None
         self.image_path = ""
         self.pred_dict = {}
-        self.det_config = "configs/Detic_LI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.py"  # path to det config file, no default specified
-        self.det_weight = "../models/detic_centernet2_swin-b_fpn_4x_lvis-coco-in21k_20230120-0d301978.pth"  # path to det weight file, no default specified
+        self.det_config = "./mmdet_sam/configs/Detic_LI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.py"  # path to det config file, no default specified
+        self.det_weight = "./models/detic_centernet2_swin-b_fpn_4x_lvis-coco-in21k_20230120-0d301978.pth"  # path to det weight file, no default specified
         self.only_det = False  # Default is the equivalent of not using --only-det
         self.not_show_label = False  # Default is the equivalent of not using --not-show-label
         self.sam_type = 'vit_h'  # Default sam type
-        self.sam_weight = '../models/sam_vit_h_4b8939.pth'  # Default path to checkpoint file
+        self.sam_weight = './models/sam_vit_h_4b8939.pth'  # Default path to checkpoint file
         self.out_dir = 'outputs'  # Default output directory
         self.box_thr = 0.3  # Default box threshold
         self.det_device = 'cuda:0'  # Default device used for det inference

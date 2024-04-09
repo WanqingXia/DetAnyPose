@@ -144,6 +144,7 @@ def test_dino():
                     img = torch.from_numpy(img)
                     img = img.to(device)
                     img = img.unsqueeze(0)
+                    embedding = model(img)
                     img = img[:, :, 16:240, 16:240]
                     # dep_file_path = path.parent / (base_name + '-depth.png')
                     # dep = np.array(Image.open(dep_file_path)) / 10000

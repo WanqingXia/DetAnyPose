@@ -220,7 +220,7 @@ if __name__ == "__main__":
     for obj_path, diag_l in zip(paths, np.float64(diags)):
         print(obj_path, diag_l)
         # create an output folder for each object model
-        save_path = create_output_path(obj_path, output_folder=obj_path.split('models')[0] + 'viewpoints_42')
+        save_path = create_output_path(obj_path, output_folder='../viewpoints_42')
         # render image for each view point
         render(obj_path, diag_l, save_path, first_execution_flag)
         first_execution_flag = False
