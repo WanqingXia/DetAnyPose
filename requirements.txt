@@ -7,14 +7,21 @@ pillow
 h5py
 blenderproc
 vedo
---extra-index-url https://download.pytorch.org/whl/cu117
-torch==2.0.0
-torchvision==0.15.0
-omegaconf
-torchmetrics==0.10.3
+opencv-python
 fvcore
 iopath
-xformers==0.0.18
+pathlib
 submitit
+omegaconf
+--index-url https://download.pytorch.org/whl/cu118
+torch==2.2.0
+torchvision==0.17.0
+torchaudio==2.2.0
+xformers
+torchmetrics
 --extra-index-url https://pypi.nvidia.com
 cuml-cu11
+mmengine
+openmim
+git+https://github.com/facebookresearch/segment-anything.git
+git+https://github.com/openai/CLIP.git

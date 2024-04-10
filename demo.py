@@ -1,6 +1,6 @@
 import cv2
 from mmdet_sam import mmdet_sam
-from dinov2 import dinov2
+from fbdinov2 import fbdinov2
 
 # image_path = './test.png'
 # MMDet_SAM = mmdet_sam.MMDet_SAM()
@@ -10,5 +10,6 @@ from dinov2 import dinov2
 # pred = MMDet_SAM.run_detector(image, image_path, 'drill')
 # MMDet_SAM.draw_outcome(image, pred, show_result=False, save_copy=False)
 
-DINOv2 = dinov2.DINOv2("./viewpoints_42")
+DINOv2 = fbdinov2.DINOv2("./viewpoints_42")
+
 stop = 1

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import torchvision.transforms as T
 from PIL import Image
+from tqdm import tqdm
+
 
 class DINOv2:
     def __init__(self, viewpoints_path):
@@ -20,6 +22,9 @@ class DINOv2:
         self.device = 'cuda:0'  # Default device used for det inference
         self.model.to(self.device)
         os.makedirs(self.out_dir, exist_ok=True)
+        # Resize the image
+        self.dinov2_size = (224, 224)
+        self.resize_transform = T.Resize(self.dinov2_size)
 
         # Read the contents of the viewpoints file
         self.read_folders_contents()
@@ -27,21 +32,29 @@ class DINOv2:
         serialized_dict = json.dumps(self.viewpoints_images, sort_keys=True)
         # Use hashlib to generate a hash from the serialized string
         hash_value = hashlib.sha256(serialized_dict.encode()).hexdigest()
-        self.load_cache(hash_value)
+        if os.path.isfile(self.cache):
+            # cache exist, check hash value
+            loaded_data = torch.load(self.cache)
+            if hash_value == loaded_data['hash']:
+                self.viewpoints_embeddings = loaded_data['tensors']
+            else:
+                print(f"The cache file {self.cache} is not the same as the hash value {hash_value}.")
+                os.remove(self.cache)
+                self.create_cache(hash_value)
+        else:
+            self.create_cache(hash_value)
 
     def forward(self, img):
-        # check if the image is already the size for DINOv2
-        dinov2_size = (224, 224)
-        if img.size != dinov2_size:
-            # Resize the image
-            resize_transform = T.Resize(dinov2_size)
-            img = resize_transform(img)
-
-        img = img.transpose((2, 0, 1))  # HWC to CHW
+        if not isinstance(img, np.ndarray):
+            raise ValueError("The image must be converted to np array before processing.")
+        img = np.transpose(img, (2, 0, 1))  # HWC to CHW
         img = np.ascontiguousarray(img).astype(np.float32)  # Ensure the image is contiguous and convert it to float32
         img = torch.from_numpy(img)  # Convert the numpy array to a PyTorch tensor.
         rgb_normalise = T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         img = rgb_normalise(img / 255.)  # Normalise and scale
+        # check if the image is already the size for DINOv2
+        if img.size != self.dinov2_size:
+            img = self.resize_transform(img)
         img = img.to(self.device)
         img = img.unsqueeze(0)  # Add a batch dimension
         return self.model(img)
@@ -61,42 +74,41 @@ class DINOv2:
         """
         gen_paths = sorted([p for p in Path(self.viewpoints_path).glob('*') if p.is_dir()])
         for folder in gen_paths:
-            folder_name = str(folder.name) # Extracts the last part of the path as the folder name
+            folder_name = str(folder.name)
+            if folder_name not in self.viewpoints_images:
+                self.viewpoints_images[folder_name] = []
+            # Extracts the last part of the path as the folder name
             sub_folder_contents = {}
             if os.path.exists(folder):
-                for filename in sorted(list(folder.rglob('*.txt'))):
-                    txt_file_path = str(folder / filename)
-                    img_file_path = str(folder / str(filename).replace('matrix.txt', 'color.png'))
-                    if os.path.isfile(txt_file_path):
-                        sub_folder_contents[txt_file_path] = np.loadtxt(txt_file_path)
-                        self.viewpoints_images[folder_name].append(img_file_path)
+                for txt_file in sorted(list(folder.rglob('*.txt'))):
+                    img_file = Path(str(txt_file).replace('matrix.txt', 'color.png'))
+                    if os.path.isfile(txt_file):
+                        sub_folder_contents[txt_file] = np.loadtxt(txt_file)
+                        self.viewpoints_images[folder_name].append(str(img_file))  # convert to string for json
                 print(f'load data from {folder} finished, {len(sub_folder_contents)} data loaded')
                 self.viewpoints_poses[folder_name] = sub_folder_contents
             else:
                 print(f"The folder {folder} does not exist.")
 
-    def load_cache(self, hash_value):
-        if os.path.isfile(self.cache):
-            # cache exist, check hash value
-            loaded_data = torch.load(self.cache)
-            if hash_value == loaded_data['hash']:
-                self.viewpoints_embeddings = loaded_data['tensors'].to(self.device)
-                return
-            else:
-                print(f"The cache file {self.cache} is not the same as the hash value {hash_value}.")
-                os.remove(self.cache)
+    def create_cache(self, hash_value):
+        with torch.no_grad():
+            for folder, image_list in tqdm(self.viewpoints_images.items()):
+                if folder not in self.viewpoints_embeddings:
+                    self.viewpoints_embeddings[folder] = []
+                for image in image_list:
+                    img = Image.open(Path(image))
+                    img = np.array(img)
+                    img = self.forward(img)
+                    self.viewpoints_embeddings[folder].append(img.cpu())
+                    img.detach()
+                    del img
+                    torch.cuda.empty_cache()  # Clear unused memory
 
-        for folder, image_list in self.viewpoints_images.items():
-            for image in image_list:
-                img = Image.open(image)
-                img = self.forward(img)
-                self.viewpoints_embeddings[folder] = img
-
-        data_to_save = {
-            'tensors': self.viewpoints_embeddings,
-            'hash': hash_value
-        }
-        torch.save(data_to_save, self.cache)
+            data_to_save = {
+                'tensors': self.viewpoints_embeddings,
+                'hash': hash_value
+            }
+            torch.save(data_to_save, self.cache)
 
     @staticmethod
     def angle_between_rotation_matrices(m1, m2):
