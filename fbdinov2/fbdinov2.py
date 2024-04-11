@@ -8,7 +8,6 @@ import torchvision.transforms as T
 from PIL import Image
 from tqdm import tqdm
 
-
 class DINOv2:
     def __init__(self, viewpoints_path):
         self.viewpoints_path = viewpoints_path
@@ -17,7 +16,10 @@ class DINOv2:
         self.viewpoints_embeddings = {}
         os.makedirs("./cache", exist_ok=True)
         self.cache = "./cache/embeddings.pt"
-        self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14')
+        # self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14', branch='main')
+        self.model = torch.hub.load('dinov2', 'dinov2_vitg14_reg', source='local', pretrained=True)
+        self.model.load_state_dict(torch.load('./models/dinov2_vitg14_reg4_pretrain.pth'))
+        # self.model = backbones.dinov2_vitg14_reg(weights=torch.load("./models/dinov2_vitg14_reg4_pretrain.pth"))
         self.out_dir = './outputs'  # Default output directory
         self.device = 'cuda:0'  # Default device used for det inference
         self.model.to(self.device)
