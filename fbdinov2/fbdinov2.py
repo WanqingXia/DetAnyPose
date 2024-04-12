@@ -8,6 +8,7 @@ import torchvision.transforms as T
 from PIL import Image
 from tqdm import tqdm
 
+
 class DINOv2:
     def __init__(self, viewpoints_path):
         self.viewpoints_path = viewpoints_path
@@ -16,10 +17,8 @@ class DINOv2:
         self.viewpoints_embeddings = {}
         os.makedirs("./cache", exist_ok=True)
         self.cache = "./cache/embeddings.pt"
-        # self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14', branch='main')
         self.model = torch.hub.load('dinov2', 'dinov2_vitg14_reg', source='local', pretrained=True)
         self.model.load_state_dict(torch.load('./models/dinov2_vitg14_reg4_pretrain.pth'))
-        # self.model = backbones.dinov2_vitg14_reg(weights=torch.load("./models/dinov2_vitg14_reg4_pretrain.pth"))
         self.out_dir = './outputs'  # Default output directory
         self.device = 'cuda:0'  # Default device used for det inference
         self.model.to(self.device)
@@ -49,17 +48,18 @@ class DINOv2:
     def forward(self, img):
         if not isinstance(img, np.ndarray):
             raise ValueError("The image must be converted to np array before processing.")
-        img = np.transpose(img, (2, 0, 1))  # HWC to CHW
-        img = np.ascontiguousarray(img).astype(np.float32)  # Ensure the image is contiguous and convert it to float32
-        img = torch.from_numpy(img)  # Convert the numpy array to a PyTorch tensor.
-        rgb_normalise = T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        img = rgb_normalise(img / 255.)  # Normalise and scale
-        # check if the image is already the size for DINOv2
-        if img.size != self.dinov2_size:
-            img = self.resize_transform(img)
-        img = img.to(self.device)
-        img = img.unsqueeze(0)  # Add a batch dimension
-        return self.model(img)
+        with torch.no_grad():
+            img = np.transpose(img, (2, 0, 1))  # HWC to CHW
+            img = np.ascontiguousarray(img).astype(np.float32)  # Ensure the image is contiguous, convert it to float32
+            img = torch.from_numpy(img)  # Convert the numpy array to a PyTorch tensor.
+            rgb_normalise = T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+            img = rgb_normalise(img / 255.)  # Normalise and scale
+            # check if the image is already the size for DINOv2
+            if img.size != self.dinov2_size:
+                img = self.resize_transform(img)
+            img = img.to(self.device)
+            img = img.unsqueeze(0)  # Add a batch dimension
+            return self.model(img)
 
     def read_folders_contents(self):
         """
@@ -93,24 +93,23 @@ class DINOv2:
                 print(f"The folder {folder} does not exist.")
 
     def create_cache(self, hash_value):
-        with torch.no_grad():
-            for folder, image_list in tqdm(self.viewpoints_images.items()):
-                if folder not in self.viewpoints_embeddings:
-                    self.viewpoints_embeddings[folder] = []
-                for image in image_list:
-                    img = Image.open(Path(image))
-                    img = np.array(img)
-                    img = self.forward(img)
-                    self.viewpoints_embeddings[folder].append(img.cpu())
-                    img.detach()
-                    del img
-                    torch.cuda.empty_cache()  # Clear unused memory
+        for folder, image_list in tqdm(self.viewpoints_images.items()):
+            if folder not in self.viewpoints_embeddings:
+                self.viewpoints_embeddings[folder] = []
+            for image in image_list:
+                img = Image.open(Path(image))
+                img = np.array(img)
+                img = self.forward(img)
+                self.viewpoints_embeddings[folder].append(img.cpu())
+                img.detach()
+                del img
+                torch.cuda.empty_cache()  # Clear unused memory
 
-            data_to_save = {
-                'tensors': self.viewpoints_embeddings,
-                'hash': hash_value
-            }
-            torch.save(data_to_save, self.cache)
+        data_to_save = {
+            'tensors': self.viewpoints_embeddings,
+            'hash': hash_value
+        }
+        torch.save(data_to_save, self.cache)
 
     @staticmethod
     def angle_between_rotation_matrices(m1, m2):
