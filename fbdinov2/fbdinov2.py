@@ -111,6 +111,28 @@ class DINOv2:
         }
         torch.save(data_to_save, self.cache)
 
+    def search_img(self, ref_poses, obj_name):
+        """
+        Find the closest pose in the viewpoint list to the original pose.
+
+        Args:
+            ref_poses (numpy.ndarray): The original pose of the object of interest.
+            obj_name (str): The name of the object
+
+        Returns:
+            str: The file name of the generated pose that is closest to the original pose.
+
+        """
+        # Find the closest pose
+        tmp = [1000, 1000, 1000]
+        path = ''
+        for image_path, pose in self.viewpoints_poses[obj_name].items():
+            angle_diff = self.angle_between_rotation_matrices(ref_poses, pose)
+            if np.abs(angle_diff[2]) < np.abs(tmp[2]):
+                tmp = angle_diff
+                path = image_path
+        return path
+
     @staticmethod
     def angle_between_rotation_matrices(m1, m2):
         def angle_between_vectors(v1, v2):

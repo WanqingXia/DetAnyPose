@@ -1,5 +1,4 @@
 import cv2
-from PIL import Image
 from mmdet_sam import mmdet_sam
 from fbdinov2 import fbdinov2
 from utils.choose import choose_from_viewpoints
@@ -18,8 +17,6 @@ if len(pred['labels']) == 0:
     # Nothing detected
     pass
 else:
-    vp_image_path, vp_pose, embed_img = choose_from_viewpoints(image, pred, DINOv2)
-    vp_image = Image.open(vp_image_path)
-    # Display the image
-    vp_image.show()
+    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2, save=True)
+
 

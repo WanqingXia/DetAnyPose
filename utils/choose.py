@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import shutil
 from utils.similarity import Similarity
 from utils.convert import Convert_String
 
@@ -24,16 +25,15 @@ def get_embedding(image, mask, box, dinov2):
 
     # Resize the square image to dinov2's required input size
     final_img_resized = cv2.resize(square_img, dinov2.dinov2_size, interpolation=cv2.INTER_LANCZOS4)
-    cv2.imwrite('example' + str(x0) + '.jpg', cv2.cvtColor(final_img_resized, cv2.COLOR_RGB2BGR))
 
     # Forward through DinoV2 and get embedding
     img_array = np.array(final_img_resized)
     embed_img = dinov2.forward(img_array)
     embed_img = embed_img.detach().cpu()  # Detach from GPU
-    return embed_img
+    return embed_img, final_img_resized
 
 
-def choose_from_viewpoints(img, pred, dinov2):
+def choose_from_viewpoints(img, pred, dinov2, save=False):
     """
     :param img: RGB cv2 image
     :param pred: the prediction of masks which includes 'boxes', 'scores', 'labels', 'masks'
@@ -44,8 +44,10 @@ def choose_from_viewpoints(img, pred, dinov2):
     num_predictions = len(pred['labels'])
     similarity = Similarity()
     convert_string = Convert_String()
+    best_pred = 0
     if num_predictions > 1:
         embed_imgs = []
+        isolated_imgs = []
         original_label = pred['labels'][0]
         label = convert_string.convert(original_label)
         similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
@@ -55,22 +57,22 @@ def choose_from_viewpoints(img, pred, dinov2):
             mask = pred['masks'][i].cpu().numpy().astype(np.uint8)
             mask = np.transpose(mask, (1, 2, 0))  # Change order to (H, W, C) for CV2
             box = pred['boxes'][i].cpu().numpy().astype(int)  # Format: [x0, y0, x1, y1]
-
-            embed_img = get_embedding(img_copy, mask, box, dinov2)
+            embed_img, isolated_img = get_embedding(img_copy, mask, box, dinov2)
 
             # Calculate similarity
             reference_embedding = dinov2.viewpoints_embeddings[label]
             for col, ref in enumerate(reference_embedding):
                 similarities[i, col] = similarity(embed_img, ref).item()
             embed_imgs.append(embed_img)
+            isolated_imgs.append(isolated_img)
 
         # Choose the best viewpoint
         best_candidate_index = np.argmax(np.mean(similarities, axis=1))
-        print(best_candidate_index)
-        print(pred['scores'])
+        best_pred = best_candidate_index
         embed_img = embed_imgs[best_candidate_index]
+        isolated_img = isolated_imgs[best_candidate_index]
         best_vp_index = np.argmax(similarities[best_candidate_index])
-        vp_image_path = dinov2.viewpoints_images[label][best_vp_index]
+        vp_img_path = dinov2.viewpoints_images[label][best_vp_index]
         vp_pose = list(dinov2.viewpoints_poses[label].values())[best_vp_index]
 
     else:
@@ -83,13 +85,17 @@ def choose_from_viewpoints(img, pred, dinov2):
         label = convert_string.convert(original_label)
         similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
 
-        embed_img = get_embedding(img_copy, mask, box, dinov2)
+        embed_img, isolated_img = get_embedding(img_copy, mask, box, dinov2)
         reference_embedding = dinov2.viewpoints_embeddings[label]
         for col, ref in enumerate(reference_embedding):
             similarities[0, col] = similarity(embed_img, ref).item()
 
         best_vp_index = np.argmax(similarities)
-        vp_image_path = dinov2.viewpoints_images[label][best_vp_index]
+        vp_img_path = dinov2.viewpoints_images[label][best_vp_index]
         vp_pose = list(dinov2.viewpoints_poses[label].values())[best_vp_index]
 
-    return vp_image_path, vp_pose, embed_img
+    if save:
+        cv2.imwrite('./outputs/isolated.jpg', cv2.cvtColor(isolated_img, cv2.COLOR_RGB2BGR))
+        shutil.copy(vp_img_path, './outputs/best_vp.png')
+
+    return vp_img_path, vp_pose, best_pred, embed_img, isolated_img
