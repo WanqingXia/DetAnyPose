@@ -25,7 +25,7 @@ object_list = sorted(os.listdir(root_path + '/models'))
 obj_list_modified = object_list.copy()
 obj_list_modified.pop(19)  # remove '052_extra_large_clamp'
 
-for folder in folder_paths:
+for folder in filtered_paths:
     tic = time.time()
     object_count = dict.fromkeys(obj_list_modified, 0)
     mmdet_fail = dict.fromkeys(obj_list_modified, 0)
@@ -64,25 +64,35 @@ for folder in folder_paths:
                         best_iou = iou
                 if best_iou < 0.7:
                     mmdet_fail[obj_name] += 1
-                vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2)
-                best_mask = pred['masks'][best_pred]
-                best_mask = best_mask.cpu().numpy().astype(np.uint8)
-                best_mask = np.transpose(best_mask, (1, 2, 0))
-                best_mask = np.squeeze(best_mask, axis=-1)
-                iso_fail_flag = False
-                if calculate_iou(best_mask, ground_mask) < 0.7:
-                    isolation_fail[obj_name] += 1
-                    iso_fail_flag = True
-                ref_pose = np.array(mat['poses'][:, :, line_num])
-                best_vp = DINOv2.search_img(ref_pose, obj_name)
-                best_vp = str(best_vp).replace('matrix.txt', 'color.png')
-                if vp_img_path != best_vp:
-                    if iso_fail_flag is False:
-                        # if the isolation failed, do not count the fail for identification
-                        identification_fail[obj_name] += 1
                 else:
-                    success[obj_name] += 1
+                    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2)
+                    best_mask = pred['masks'][best_pred]
+                    best_mask = best_mask.cpu().numpy().astype(np.uint8)
+                    best_mask = np.transpose(best_mask, (1, 2, 0))
+                    best_mask = np.squeeze(best_mask, axis=-1)
+                    if calculate_iou(best_mask, ground_mask) < 0.7:
+                        isolation_fail[obj_name] += 1
+                    else:
+                        ref_pose = np.array(mat['poses'][:, :, line_num])
+                        best_vp = DINOv2.search_img(ref_pose, obj_name)
+                        best_vp = str(best_vp).replace('matrix.txt', 'color.png')
+                        if vp_img_path != best_vp:
+                            # if the isolation failed, do not count the fail for identification
+                            identification_fail[obj_name] += 1
+                        else:
+                            success[obj_name] += 1
     toc = time.time()
+    # Identify keys where the value in object_count is 0
+    keys_to_remove = [key for key, value in object_count.items() if value == 0]
+
+    # Remove these keys from all dictionaries
+    for key in keys_to_remove:
+        del object_count[key]
+        del mmdet_fail[key]
+        del isolation_fail[key]
+        del identification_fail[key]
+        del success[key]
+
     # Save the dictionary to a text file
     with open('outputs/' + folder.name + '.txt', 'w') as file:
         file.write(f'Time taken: {toc-tic} \n')
