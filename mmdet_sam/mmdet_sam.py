@@ -50,7 +50,7 @@ except ImportError:
 
 
 class MMDet_SAM:
-    def __init__(self):
+    def __init__(self, device):
         self.image = None
         self.image_path = ""
         self.pred_dict = {}
@@ -62,8 +62,8 @@ class MMDet_SAM:
         self.sam_weight = './models/sam_vit_h_4b8939.pth'  # Default path to checkpoint file
         self.out_dir = 'outputs'  # Default output directory
         self.box_thr = 0.3  # Default box threshold
-        self.det_device = 'cuda:0'  # Default device used for det inference
-        self.sam_device = 'cuda:0'  # Default device used for sam inference
+        self.det_device = device  # Default device used for det inference
+        self.sam_device = device  # Default device used for sam inference
         self.cpu_off_load = False  # Default is the equivalent of not using --cpu-off-load
         self.use_detic_mask = False  # Default is the equivalent of not using --use-detic-mask
         self.text_prompt = ""  # text prompt, no default specified
@@ -192,11 +192,12 @@ class MMDet_SAM:
                 plt.gca().imshow(mask_image)
 
         plt.axis('off')
-        if show_result:
-            plt.show()
         if save_copy:
             save_path = os.path.join(self.out_dir, self.text_prompt + '.png')
             plt.savefig(save_path)
+        if show_result:
+            plt.show()
+
 
     def _reset_cls_layer_weight(self, weight):
         if type(weight) == str:

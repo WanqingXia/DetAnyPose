@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import shutil
-from utils.similarity import Similarity
+from utils.similarity import *
 from utils.convert import Convert_String
 
 
@@ -42,7 +42,8 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
              pose: object pose of the chosen viewpoint
     """
     num_predictions = len(pred['labels'])
-    similarity = Similarity()
+    CosineSim = CosineSimilarity()
+    L2Dist = L2Distance()
     convert_string = Convert_String()
     best_pred = 0
     if num_predictions > 1:
@@ -50,7 +51,9 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
         isolated_imgs = []
         original_label = pred['labels'][0]
         label = convert_string.convert(original_label)
-        similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
+        cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
+        pair_similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
+
         # Process each prediction mask
         for i in range(num_predictions):
             img_copy = img.copy()  # preserve the original image
@@ -62,16 +65,21 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
             # Calculate similarity
             reference_embedding = dinov2.viewpoints_embeddings[label]
             for col, ref in enumerate(reference_embedding):
-                similarities[i, col] = similarity(embed_img, ref).item()
+                cos_similarities[i, col] = CosineSim(embed_img, ref).item()
             embed_imgs.append(embed_img)
             isolated_imgs.append(isolated_img)
 
         # Choose the best viewpoint
-        best_candidate_index = np.argmax(np.mean(similarities, axis=1))
-        best_pred = best_candidate_index
+        best_candidate_index = np.argmax(np.mean(cos_similarities, axis=1))
         embed_img = embed_imgs[best_candidate_index]
+        best_pred = best_candidate_index
+        reference_embedding = dinov2.viewpoints_embeddings[label]
+        for col, ref in enumerate(reference_embedding):
+            # pair_similarities[0, col] = L2Dist(embed_img, ref).item()
+            pair_similarities[0, col] = CosineSim(embed_img, ref).item()
         isolated_img = isolated_imgs[best_candidate_index]
-        best_vp_index = np.argmax(similarities[best_candidate_index])
+        # best_vp_index = np.argmin(pair_similarities)
+        best_vp_index = np.argmax(pair_similarities)
         vp_img_path = dinov2.viewpoints_images[label][best_vp_index]
         vp_pose = list(dinov2.viewpoints_poses[label].values())[best_vp_index]
 
@@ -83,14 +91,16 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
         box = pred['boxes'][0].cpu().numpy().astype(int)  # Format: [x0, y0, x1, y1]
         original_label = pred['labels'][0]
         label = convert_string.convert(original_label)
-        similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
+        pair_similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
 
         embed_img, isolated_img = get_embedding(img_copy, mask, box, dinov2)
         reference_embedding = dinov2.viewpoints_embeddings[label]
         for col, ref in enumerate(reference_embedding):
-            similarities[0, col] = similarity(embed_img, ref).item()
+            # pair_similarities[0, col] = L2Dist(embed_img, ref).item()
+            pair_similarities[0, col] = CosineSim(embed_img, ref).item()
 
-        best_vp_index = np.argmax(similarities)
+        # best_vp_index = np.argmin(pair_similarities)
+        best_vp_index = np.argmax(pair_similarities)
         vp_img_path = dinov2.viewpoints_images[label][best_vp_index]
         vp_pose = list(dinov2.viewpoints_poses[label].values())[best_vp_index]
 

@@ -53,7 +53,7 @@ print("success:", success)
 keys = list(object_count.keys())
 
 # Plotting
-fig, ax = plt.subplots(figsize=(10, 6))
+fig, ax = plt.subplots(figsize=(12, 8))
 
 # Colors for different sections of the bar
 colors = ['#77dd77', '#ff6961', '#fdfd96', '#84b6f4']
@@ -77,6 +77,9 @@ for i, key in enumerate(keys):
     # Label at the top of each bar
     ax.text(i, total, f'Total: {total}\nRate: {success_rate:.0%}', ha='center', va='bottom')
 
+max_height = max(object_count[key] for key in keys)
+# Set the y-axis limit to be 200 units higher than the maximum height found
+ax.set_ylim(0, max_height*1.3)
 # Labels and title
 ax.set_ylabel('Count')
 ax.set_title('Object Processing Results by Key')

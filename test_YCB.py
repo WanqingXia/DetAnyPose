@@ -12,14 +12,14 @@ from utils.convert import Convert_String
 from utils.calculate_iou import calculate_iou
 import time
 
-
+device = 'cuda:0'
 root_path = '/media/iai-lab/wanqing/YCB_Video_Dataset'
 folder_paths = sorted([p for p in (Path(root_path) / 'data').glob('*') if p.is_dir()])[:60]  # up to 0059
 # remove 0003, 0011, 0015, 0019, 0025, 0032, 0033, 0036, 0047, 0048, 0057 due to 052_extra_large_clamp
 remove_folders = ['0003', '0011', '0015', '0019', '0025', '0032', '0033', '0036', '0047', '0048', '0057']
 filtered_paths = [path for path in folder_paths if not any(substring in str(path) for substring in remove_folders)]
-MMDet_SAM = mmdet_sam.MMDet_SAM()
-DINOv2 = fbdinov2.DINOv2("./viewpoints_42")
+MMDet_SAM = mmdet_sam.MMDet_SAM(device)
+DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
 Convert_String = Convert_String()
 object_list = sorted(os.listdir(root_path + '/models'))
 obj_list_modified = object_list.copy()

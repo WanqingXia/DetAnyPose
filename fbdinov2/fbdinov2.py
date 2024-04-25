@@ -10,17 +10,17 @@ from tqdm import tqdm
 
 
 class DINOv2:
-    def __init__(self, viewpoints_path):
+    def __init__(self, viewpoints_path, device):
         self.viewpoints_path = viewpoints_path
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
         os.makedirs("./cache", exist_ok=True)
-        self.cache = "./cache/embeddings.pt"
-        self.model = torch.hub.load('dinov2', 'dinov2_vitg14_reg', source='local', pretrained=True)
-        self.model.load_state_dict(torch.load('./models/dinov2_vitg14_reg4_pretrain.pth'))
+        self.cache = "./cache/embeddings1024.pt"
+        self.model = torch.hub.load('dinov2', 'dinov2_vitl14', source='local', pretrained=True)
+        self.model.load_state_dict(torch.load('./models/dinov2_vitl14_pretrain.pth'))
         self.out_dir = './outputs'  # Default output directory
-        self.device = 'cuda:0'  # Default device used for det inference
+        self.device = device  # Default device used for det inference
         self.model.to(self.device)
         os.makedirs(self.out_dir, exist_ok=True)
         # Resize the image

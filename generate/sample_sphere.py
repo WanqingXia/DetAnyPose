@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.spatial import distance_matrix
+import vedo
 
 """
 Author： Wanqing Xia
@@ -73,26 +74,35 @@ if __name__ == "__main__":
     print("max angular distance:", max_angular_dist)
     print("mean angular distance: ", mean_angular_dist)
 
-    # Unpack points for plotting
-    xs, ys, zs = zip(*points)
+    # Load 3D model using vedo
+    model_path = '/media/iai-lab/wanqing/YCB_Video_Dataset/models/035_power_drill/textured.obj'
+    texture_path = '/media/iai-lab/wanqing/YCB_Video_Dataset/models/035_power_drill/texture_map.png'
 
-    # Plot
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
+    # Load the model
+    model = vedo.load(model_path)
 
-    # Draw sphere
-    u, v = np.mgrid[0:2 * np.pi:20j, 0:np.pi:10j]
-    x = radius * np.cos(u) * np.sin(v)
-    y = radius * np.sin(u) * np.sin(v)
-    z = radius * np.cos(v)
-    ax.plot_wireframe(x, y, z, color="r", alpha=0.1)
+    # Load the texture
+    texture = vedo.load(texture_path)
 
-    # Draw points
-    ax.scatter(xs, ys, zs, color="b", s=1)
+    # Apply the texture manually
+    model.texture(texture)
 
-    # Labels and show
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('Fibonacci Sphere with Points')
-    plt.show()
+    # Create a Plotter, add the model, and display
+    plot = vedo.Plotter()
+    plot.add(model)
+    model.scale(15)  # adjust scaling to fit your scene
+
+    # Define axis lines (simple)
+    x_line = vedo.shapes.Line([-5, 0, 0], [5, 0, 0], c='red')  # Red line for the X-axis
+    y_line = vedo.shapes.Line([0, -5, 0], [0, 5, 0], c='green')  # Green line for the Y-axis
+    z_line = vedo.shapes.Line([0, 0, -5], [0, 0, 5], c='blue')  # Blue line for the Z-axis
+
+    # Add the axis lines to the plot
+    plot.add(x_line)
+    plot.add(y_line)
+    plot.add(z_line)
+
+    # Add points
+    for point in points:
+        plot += vedo.shapes.Sphere(pos=point, r=0.1, c='b')
+    plot.show()

@@ -3,15 +3,16 @@ from mmdet_sam import mmdet_sam
 from fbdinov2 import fbdinov2
 from utils.choose import choose_from_viewpoints
 
+device = 'cuda:0'
 image_path = './test.png'
-MMDet_SAM = mmdet_sam.MMDet_SAM()
+MMDet_SAM = mmdet_sam.MMDet_SAM(device)
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-pred = MMDet_SAM.run_detector(image.copy(), image_path, 'white_bleach_bottle')
-# MMDet_SAM.draw_outcome(image.copy(), pred, show_result=False, save_copy=False)
+pred = MMDet_SAM.run_detector(image.copy(), image_path, 'drill')
+MMDet_SAM.draw_outcome(image.copy(), pred, show_result=True, save_copy=True)
 
-DINOv2 = fbdinov2.DINOv2("./viewpoints_42")
+DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
 
 if len(pred['labels']) == 0:
     # Nothing detected
