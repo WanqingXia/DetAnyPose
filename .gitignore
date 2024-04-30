@@ -157,3 +157,4 @@ mmdetection/
 models/
 viewpoints_42/
 outputs/
+viewpoints_42_old/

@@ -16,7 +16,7 @@ class DINOv2:
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
         os.makedirs("./cache", exist_ok=True)
-        self.cache = "./cache/embeddings1024.pt"
+        self.cache = "./cache/embeddings1024_old.pt"
         self.model = torch.hub.load('dinov2', 'dinov2_vitl14', source='local', pretrained=True)
         self.model.load_state_dict(torch.load('./models/dinov2_vitl14_pretrain.pth'))
         self.out_dir = './outputs'  # Default output directory

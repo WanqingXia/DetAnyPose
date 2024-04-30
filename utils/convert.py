@@ -29,7 +29,7 @@ class Convert_String:
         037_scissors scissors
         040_large_marker marker_pen
         051_large_clamp black_clamp
-        061_foam_brick red_block
+        061_foam_brick red_rectangular_block
         """
         # Splitting the mapping text into lines and then into key-value pairs
         pairs = mapping_text.strip().split('\n')
