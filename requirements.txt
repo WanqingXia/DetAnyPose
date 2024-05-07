@@ -1,25 +1,33 @@
---index-url https://download.pytorch.org/whl/cu118
-torch==2.2.0+cu118
-torchvision==0.17.0+cu118
-torchaudio==2.2.0+cu118
-xformers==0.0.24+cu118
-torchmetrics==1.0.3
-# --extra-index-url https://pypi.nvidia.com
-# cuml-cu11==23.4.0
+# pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu121
+# pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html
+
+# conda install pinocchio -c conda-forge
+# conda install -c conda-forge firefox geckodriver
+
 mmengine
 openmim
-matplotlib
-pandas
-scikit-learn
+xformers==0.0.23.post1
+bokeh
+omegaconf
+joblib
+transforms3d
+webdataset
 tqdm
+trimesh
+panda3d
+setuptools-scm
+tomli
+seaborn
+roma
+open3d
+simplejson
+pypng
+imageio
+scipy
+selenium
+meshcat
+opencv-contrib-python
+scikit-learn
 h5py
 blenderproc
 vedo
-opencv-python
-fvcore
-iopath
-pathlib
-submitit
-omegaconf
-git+https://github.com/facebookresearch/segment-anything.git
-git+https://github.com/openai/CLIP.git
