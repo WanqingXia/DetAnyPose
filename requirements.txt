@@ -5,7 +5,6 @@
 # conda install -c conda-forge firefox geckodriver
 
 mmengine
-openmim
 xformers==0.0.23.post1
 bokeh
 omegaconf

@@ -3,9 +3,9 @@ from mmdet_sam import mmdet_sam
 from fbdinov2 import fbdinov2
 from utils.choose import choose_from_viewpoints
 from scipy.io import loadmat
-mat = loadmat('./000100-meta.mat')
+mat = loadmat('./data/000100-meta.mat')
 device = 'cuda:0'
-image_path = './000100-color.png'
+image_path = './data/000100-color.png'
 MMDet_SAM = mmdet_sam.MMDet_SAM(device)
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -19,6 +19,6 @@ if len(pred['labels']) == 0:
     # Nothing detected
     pass
 else:
-    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2, save=False)
+    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2, save=True)
 
 

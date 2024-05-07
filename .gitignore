@@ -152,6 +152,7 @@ cython_debug/
 .idea/
 cache/
 wandb/
+dinov2/
 results/
 mmdetection/
 models/
