@@ -158,3 +158,4 @@ mmdetection/
 models/
 viewpoints_42/
 outputs/
+megapose/data/

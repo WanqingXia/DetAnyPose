@@ -19,6 +19,6 @@ if len(pred['labels']) == 0:
     # Nothing detected
     pass
 else:
-    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2, save=True)
+    vp_img_path, vp_pose, best_pred, embed_img, iso_img = choose_from_viewpoints(image, pred, DINOv2, save=False)
 
 
