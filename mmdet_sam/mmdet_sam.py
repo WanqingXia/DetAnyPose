@@ -101,9 +101,8 @@ class MMDet_SAM:
             config, self.det_weight, device='cpu', cfg_options={})
         return detecter
 
-    def run_detector(self, image, image_path, prompt):
+    def run_detector(self, image, prompt):
         self.image = image  # image need to be read by cv2 and convert to RGB format
-        self.image_path = image_path
         self.text_prompt = prompt
 
         if 'Detic' in self.det_config:
@@ -120,7 +119,7 @@ class MMDet_SAM:
             embedding = get_text_embeddings(custom_vocabulary=custom_vocabulary)
             self._reset_cls_layer_weight(embedding)
 
-        result = inference_detector(self.det_model, self.image_path)
+        result = inference_detector(self.det_model, self.image)
         pred_instances = result.pred_instances[
             result.pred_instances.scores > self.box_thr]
 

@@ -109,3 +109,39 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
         shutil.copy(vp_img_path, './outputs/best_vp.png')
 
     return vp_img_path, vp_pose, best_pred, embed_img, isolated_img
+
+
+def validate_preds(img, pred, dinov2):
+    """
+    :param img: RGB cv2 image
+    :param pred: the prediction of masks which includes 'boxes', 'scores', 'labels', 'masks'
+    :param dinov2: DinoV2 model, used to embed the image to a tensor of (1,1536)
+    :return: filename: filename of the chosen viewpoint
+             pose: object pose of the chosen viewpoint
+    """
+    num_predictions = len(pred['labels'])
+    CosineSim = CosineSimilarity()
+    convert_string = Convert_String()
+    best_pred = 0
+    if num_predictions > 1:
+        original_label = pred['labels'][0]
+        label = convert_string.convert(original_label)
+        cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
+
+        # Process each prediction mask
+        for i in range(num_predictions):
+            img_copy = img.copy()  # preserve the original image
+            mask = pred['masks'][i].cpu().numpy().astype(np.uint8)
+            mask = np.transpose(mask, (1, 2, 0))  # Change order to (H, W, C) for CV2
+            box = pred['boxes'][i].cpu().numpy().astype(int)  # Format: [x0, y0, x1, y1]
+            embed_img, _ = get_embedding(img_copy, mask, box, dinov2)
+
+            # Calculate similarity
+            reference_embedding = dinov2.viewpoints_embeddings[label]
+            for col, ref in enumerate(reference_embedding):
+                cos_similarities[i, col] = CosineSim(embed_img, ref).item()
+
+        # Choose the best viewpoint
+        best_pred = np.argmax(np.mean(cos_similarities, axis=1))
+
+    return best_pred

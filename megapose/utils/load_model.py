@@ -1,5 +1,5 @@
+from pathlib import Path
 # MegaPose
-from megapose.config import LOCAL_DATA_DIR
 from megapose.datasets.object_dataset import RigidObjectDataset
 from megapose.inference.icp_refiner import ICPRefiner
 from megapose.inference.pose_estimator import PoseEstimator
@@ -49,6 +49,7 @@ NAMED_MODELS = {
 
 def load_named_model(
     model_name: str,
+    models_root: Path,
     object_dataset: RigidObjectDataset,
     n_workers: int = 4,
     bsz_images: int = 128,
@@ -68,7 +69,7 @@ def load_named_model(
         object_dataset=object_dataset,
         force_panda3d_renderer=True,
         renderer_kwargs=renderer_kwargs,
-        models_root=LOCAL_DATA_DIR / "megapose-models",
+        models_root=models_root,
     )
 
     depth_refiner = None
