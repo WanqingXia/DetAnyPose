@@ -4,7 +4,7 @@ from PIL import Image
 
 from mmdet_sam import mmdet_sam
 from fbdinov2 import fbdinov2
-from megapose import megapose
+from megapose import nvmegapose
 from utils.choose import choose_from_viewpoints, validate_preds
 from scipy.io import loadmat
 
@@ -12,7 +12,7 @@ from scipy.io import loadmat
 device = 'cuda:0'
 MMDet_SAM = mmdet_sam.MMDet_SAM(device)
 DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
-Megapose = megapose.Megapose(device)
+Megapose = nvmegapose.Megapose(device)
 
 mat = loadmat('./data/drill/image_meta.mat')
 rgb = cv2.imread('./data/drill/image_rgb.png')
@@ -29,19 +29,20 @@ if len(pred['labels']) == 0:
 else:
     best_pred = validate_preds(rgb, pred, DINOv2)
 
-mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
-mask = np.transpose(mask, (1, 2, 0))
+# mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
+# mask = np.transpose(mask, (1, 2, 0))
+#
+rgb = np.array(rgb, dtype=np.uint8)
+# rgb_masked = rgb * mask
+#
+# mask = mask.squeeze(axis=-1)
+# depth_masked = depth * mask
 
-rgb = np.array(rgb).astype(np.uint8)
-rgb_masked = rgb * mask
-
-mask = mask.squeeze(axis=-1)
-depth_masked = depth * mask
 # Convert the NumPy array to a PIL Image
 # image = Image.fromarray(rgb_masked)
 # # Save the image
 # image.save('output_image.png')
 #
 bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-Megapose.inference(rgb_masked, depth_masked, pred['labels'][best_pred], bbox)
+Megapose.inference(rgb, depth, pred['labels'][best_pred], bbox)
 

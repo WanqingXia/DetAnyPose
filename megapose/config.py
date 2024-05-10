@@ -26,9 +26,9 @@ from joblib import Memory
 # MegaPose
 import megapose
 
-PROJECT_ROOT = Path(megapose.__file__).parent.parent.parent
+PROJECT_ROOT = Path(megapose.__file__).parent.parent
 PROJECT_DIR = PROJECT_ROOT
-LOCAL_DATA_DIR = Path(os.environ.get("MEGAPOSE_DATA_DIR", Path(PROJECT_DIR) / "local_data"))
+LOCAL_DATA_DIR = Path(os.environ.get("MEGAPOSE_DATA_DIR", Path(PROJECT_DIR) / "data"))
 BOP_DS_DIR = LOCAL_DATA_DIR / "bop_datasets"
 NB_DATA_DIR = LOCAL_DATA_DIR / "notebook_data"
 SHAPENET_DIR = LOCAL_DATA_DIR / "shapenetcorev2"

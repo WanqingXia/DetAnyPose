@@ -41,6 +41,29 @@ class Megapose:
         self.models_path = Path("./models/megapose-models")
         self.cad_path = Path("./data/drill")
 
+    def run_inference(self,
+            example_dir: Path,
+    ) -> None:
+
+        model_info = NAMED_MODELS[self.model_name]
+
+        observation = self.load_observation_tensor(
+            example_dir, load_depth=model_info["requires_depth"]
+        ).cuda()
+        detections = self.load_detections(example_dir).cuda()
+        object_dataset = self.make_object_dataset(example_dir)
+
+        logger.info(f"Loading model {self.model_name}.")
+        pose_estimator = load_named_model(self.model_name, self.models_path, object_dataset).cuda()
+
+        logger.info(f"Running inference.")
+        output, _ = pose_estimator.run_inference_pipeline(
+            observation, detections=detections, run_detector=False, **model_info["inference_parameters"]
+        )
+
+        self.save_predictions(example_dir, output)
+        return
+
     def inference(self, rgb, depth, label, bbox):
         """
         :param rgb: np array of the RGB image, np.uint8 type
@@ -120,7 +143,7 @@ class Megapose:
 
         depth = None
         if load_depth:
-            depth = np.array(Image.open(example_dir / "image_depth.png"), dtype=np.float32) / 1000
+            depth = np.array(Image.open(example_dir / "image_depth.png"), dtype=np.float32) / 10000
             assert depth.shape[:2] == camera_data.resolution
 
         return rgb, depth, camera_data
