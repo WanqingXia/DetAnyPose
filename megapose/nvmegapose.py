@@ -39,7 +39,10 @@ class Megapose:
         self.model_info = NAMED_MODELS[self.model_name]
         self.camera_data = CameraData.from_json((Path("./camera_data.json")).read_text())
         self.models_path = Path("./models/megapose-models")
-        self.cad_path = Path("./data/drill")
+        self.cad_path = Path("/media/iai-lab/wanqing/YCB_Video_Dataset/models")
+        self.object_dataset = self.make_object_dataset(self.cad_path)
+        logger.info(f"Loading model {self.model_name}.")
+        self.pose_estimator = load_named_model(self.model_name, self.models_path, self.object_dataset).cuda()
 
     def run_inference(self,
             example_dir: Path,
@@ -79,18 +82,12 @@ class Megapose:
 
         object_data = [ObjectData(label=label, bbox_modal=bbox)]
         detections = make_detections_from_object_data(object_data).cuda()
-        object_dataset = self.make_object_dataset(self.cad_path)
 
-        logger.info(f"Loading model {self.model_name}.")
-        pose_estimator = load_named_model(self.model_name, self.models_path, object_dataset).cuda()
-
-        logger.info(f"Running inference.")
-        output, _ = pose_estimator.run_inference_pipeline(
+        output, _ = self.pose_estimator.run_inference_pipeline(
             observation, detections=detections, run_detector=False, **self.model_info["inference_parameters"]
         )
 
-        self.save_predictions(Path("./data/drill/outputs"), output)
-        return
+        return output
 
     def output_visualization(self, example_dir: Path) -> None:
         rgb, _, camera_data = self.load_observation(example_dir, load_depth=False)
@@ -166,10 +163,12 @@ class Megapose:
         detections = make_detections_from_object_data(input_object_data).cuda()
         return detections
 
-    def make_object_dataset(self, example_dir: Path) -> RigidObjectDataset:
+    def make_object_dataset(self, cad_model_dir: Path) -> RigidObjectDataset:
         rigid_objects = []
-        mesh_units = "mm"
-        object_dirs = (example_dir / "meshes").iterdir()
+        mesh_units = "m"
+        object_dirs = cad_model_dir.iterdir()
+        print("Loading all CAD models from {}, default unit {}, this may take a long time".
+              format(cad_model_dir, mesh_units))
         for object_dir in object_dirs:
             label = object_dir.name
             mesh_path = None
@@ -193,7 +192,7 @@ class Megapose:
             ObjectData(label=label, TWO=Transform(pose)) for label, pose in zip(labels, poses)
         ]
         object_data_json = json.dumps([x.to_json() for x in object_data])
-        output_fn = example_dir / "outputs" / "object_data.json"
+        output_fn = example_dir / "object_data.json"
         output_fn.parent.mkdir(exist_ok=True)
         output_fn.write_text(object_data_json)
         logger.info(f"Wrote predictions: {output_fn}")
