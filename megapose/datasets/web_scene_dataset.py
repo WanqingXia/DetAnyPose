@@ -110,7 +110,7 @@ def write_scene_ds_as_wds(
         if obs.object_datas is not None:
             sample["object_datas.json"] = [obj.to_json() for obj in obs.object_datas]
         if obs.camera_data is not None:
-            sample["camera_data.json"] = obs.camera_data.to_json()
+            sample["ycbv_camera_data.json"] = obs.camera_data.to_json()
 
         shard_writer.write(sample)
         n_frames += 1
@@ -138,7 +138,7 @@ def load_scene_ds_obs(
     assert isinstance(sample["rgb.png"], bytes)
     assert isinstance(sample["segmentation.png"], bytes)
     assert isinstance(sample["depth.png"], bytes)
-    assert isinstance(sample["camera_data.json"], bytes)
+    assert isinstance(sample["ycbv_camera_data.json"], bytes)
     assert isinstance(sample["infos.json"], bytes)
 
     rgb = np.array(imageio.imread(io.BytesIO(sample["rgb.png"])))
@@ -155,7 +155,7 @@ def load_scene_ds_obs(
     for obj in object_datas:
         obj.label = label_format.format(label=obj.label)
 
-    camera_data = CameraData.from_json(sample["camera_data.json"])
+    camera_data = CameraData.from_json(sample["ycbv_camera_data.json"])
     infos = ObservationInfos.from_json(sample["infos.json"])
 
     return SceneObservation(
@@ -211,7 +211,7 @@ class WebSceneDataset(SceneDataset):
             "depth.png",
             "infos.json",
             "object_datas.json",
-            "camera_data.json",
+            "ycbv_camera_data.json",
         ):
             tar_file = tar.extractfile(f"{key}.{k}")
             assert tar_file is not None

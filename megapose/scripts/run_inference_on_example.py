@@ -37,7 +37,7 @@ def load_observation(
     example_dir: Path,
     load_depth: bool = False,
 ) -> Tuple[np.ndarray, Union[None, np.ndarray], CameraData]:
-    camera_data = CameraData.from_json((example_dir / "camera_data.json").read_text())
+    camera_data = CameraData.from_json((example_dir / "ycbv_camera_data.json").read_text())
 
     rgb = np.array(Image.open(example_dir / "image_rgb.png"), dtype=np.uint8)
     assert rgb.shape[:2] == camera_data.resolution

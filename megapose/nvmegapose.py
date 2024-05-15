@@ -37,7 +37,7 @@ class Megapose:
         self.device = device
         self.model_name = "megapose-1.0-RGB-multi-hypothesis-icp"
         self.model_info = NAMED_MODELS[self.model_name]
-        self.camera_data = CameraData.from_json((Path("./camera_data.json")).read_text())
+        self.camera_data = CameraData.from_json((Path("./data/ycbv_camera_data.json")).read_text())
         self.models_path = Path("./models/megapose-models")
         self.cad_path = Path("/media/iai-lab/wanqing/YCB_Video_Dataset/models")
         self.object_dataset = self.make_object_dataset(self.cad_path)
@@ -133,7 +133,7 @@ class Megapose:
 
     def load_observation(self, example_dir: Path, load_depth: bool = False) -> Tuple[
         np.ndarray, Union[None, np.ndarray], CameraData]:
-        camera_data = CameraData.from_json((example_dir / "camera_data.json").read_text())
+        camera_data = CameraData.from_json((example_dir / "ycbv_camera_data.json").read_text())
 
         rgb = np.array(Image.open(example_dir / "image_rgb.png"), dtype=np.uint8)
         assert rgb.shape[:2] == camera_data.resolution

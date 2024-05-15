@@ -153,10 +153,10 @@ cython_debug/
 cache/
 wandb/
 dinov2/
-results/
 mmdetection/
 models/
 viewpoints_42/
 outputs/
 megapose/data/
 data/
+YCB_Video_Dataset/
