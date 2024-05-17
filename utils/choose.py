@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import shutil
 from utils.similarity import *
-from utils.convert import Convert_String
+from utils.convert import Convert_YCB
 
 
 def get_embedding(image, mask, box, dinov2):
@@ -44,13 +44,13 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
     num_predictions = len(pred['labels'])
     CosineSim = CosineSimilarity()
     L2Dist = L2Distance()
-    convert_string = Convert_String()
+    convert_string = Convert_YCB()
     best_pred = 0
     if num_predictions > 1:
         embed_imgs = []
         isolated_imgs = []
         original_label = pred['labels'][0]
-        label = convert_string.convert(original_label)
+        label = convert_string.convert_name(original_label)
         cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
         pair_similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
 
@@ -90,7 +90,7 @@ def choose_from_viewpoints(img, pred, dinov2, save=False):
         mask = np.transpose(mask, (1, 2, 0))  # Change order to (H, W, C) for CV2
         box = pred['boxes'][0].cpu().numpy().astype(int)  # Format: [x0, y0, x1, y1]
         original_label = pred['labels'][0]
-        label = convert_string.convert(original_label)
+        label = convert_string.convert_name(original_label)
         pair_similarities = np.zeros((1, len(dinov2.viewpoints_embeddings[label])))
 
         embed_img, isolated_img = get_embedding(img_copy, mask, box, dinov2)
@@ -121,11 +121,11 @@ def validate_preds(img, pred, dinov2):
     """
     num_predictions = len(pred['labels'])
     CosineSim = CosineSimilarity()
-    convert_string = Convert_String()
+    convert_string = Convert_YCB()
     best_pred = 0
     if num_predictions > 1:
         original_label = pred['labels'][0]
-        label = convert_string.convert(original_label)
+        label = convert_string.convert_name(original_label)
         cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
 
         # Process each prediction mask

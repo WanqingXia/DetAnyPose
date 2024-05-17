@@ -159,4 +159,5 @@ viewpoints_42/
 outputs/
 megapose/data/
 data/
-YCB_Video_Dataset/
+bop_toolkit/
+bop_datasets/

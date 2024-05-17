@@ -33,14 +33,15 @@ logger = get_logger(__name__)
 
 
 class Megapose:
-    def __init__(self, device):
+    def __init__(self, device, convert):
         self.device = device
+        self.Convert_YCB = convert
         self.model_name = "megapose-1.0-RGB-multi-hypothesis-icp"
         self.model_info = NAMED_MODELS[self.model_name]
         self.camera_data = CameraData.from_json((Path("./data/ycbv_camera_data.json")).read_text())
         self.models_path = Path("./models/megapose-models")
-        self.cad_path = Path("/media/iai-lab/wanqing/YCB_Video_Dataset/models")
-        self.object_dataset = self.make_object_dataset(self.cad_path)
+        self.cad_path = Path("./bop_datasets/ycbv/models")
+        self.object_dataset = self.make_ycb_object_dataset(self.cad_path)
         logger.info(f"Loading model {self.model_name}.")
         self.pose_estimator = load_named_model(self.model_name, self.models_path, self.object_dataset).cuda()
 
@@ -179,6 +180,18 @@ class Megapose:
             assert mesh_path, f"couldnt find a obj or ply mesh for {label}"
             rigid_objects.append(RigidObject(label=label, mesh_path=mesh_path, mesh_units=mesh_units))
             # TODO: fix mesh units
+        rigid_object_dataset = RigidObjectDataset(rigid_objects)
+        return rigid_object_dataset
+
+    def make_ycb_object_dataset(self, cad_model_dir: Path) -> RigidObjectDataset:
+        rigid_objects = []
+        mesh_units = "mm"
+        object_plys = sorted(cad_model_dir.rglob('*.ply'))
+        print("Loading all CAD models from {}, default unit {}, this may take a long time".
+              format(cad_model_dir, mesh_units))
+        for num, object_ply in enumerate(object_plys):
+            label = self.Convert_YCB.convert_number(num + 1)
+            rigid_objects.append(RigidObject(label=label, mesh_path=object_ply, mesh_units=mesh_units))
         rigid_object_dataset = RigidObjectDataset(rigid_objects)
         return rigid_object_dataset
 

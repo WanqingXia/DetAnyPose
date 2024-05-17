@@ -1,10 +1,25 @@
-class Convert_String:
+class Convert_YCB:
     def __init__(self):
-        self.conversion_dict = self.create_conversion_dict()
+        self.conversion_dict, self.name_to_number_dict, self.number_to_name_dict = self.create_conversion_dict()
 
-    def convert(self, input_string):
+    def convert_name(self, input_string):
         # Return the converted string if available, otherwise return the original string
         return self.conversion_dict.get(input_string)
+
+    def convert_number(self, input_value):
+        # Determine if the input is a name or a number and convert accordingly
+        if isinstance(input_value, str):
+            return self.name_to_number_dict.get(input_value)
+        elif isinstance(input_value, int):
+            return self.number_to_name_dict.get(input_value)
+        else:
+            raise ValueError("The input should either be a string or an int")
+
+    def get_object_list(self):
+        return list(self.conversion_dict.keys())
+
+    def get_desc_names_list(self):
+        return list(self.conversion_dict.values())
 
     @staticmethod
     def create_conversion_dict():
@@ -29,22 +44,28 @@ class Convert_String:
         037_scissors scissors
         040_large_marker marker_pen
         051_large_clamp black_clamp
+        052_extra_large_clamp big_black_clamp
         061_foam_brick red_rectangular_block
         """
         # Splitting the mapping text into lines and then into key-value pairs
         pairs = mapping_text.strip().split('\n')
         conversion_dict = {}
+        name_to_number = {}
+        number_to_name = {}
 
-        for pair in pairs:
+        for idx, pair in enumerate(pairs, start=1):
             key, value = pair.strip().split()
             conversion_dict[key] = value
             conversion_dict[value] = key  # This line allows bidirectional lookup
-        return conversion_dict
+            name_to_number[key] = idx
+            number_to_name[idx] = key
+
+        return conversion_dict, name_to_number, number_to_name
 
 
 if __name__ == '__main__':
-    convert_string = Convert_String()
-    assert convert_string.convert("002_master_chef_can") == "blue_cylindrical_can"
-    assert convert_string.convert("blue_cylindrical_can") == "002_master_chef_can"
-    assert convert_string.convert("banana") == "011_banana"
-    assert convert_string.convert("011") is None
+    convert_string = Convert_YCB()
+    assert convert_string.convert_name("002_master_chef_can") == "blue_cylindrical_can"
+    assert convert_string.convert_name("blue_cylindrical_can") == "002_master_chef_can"
+    assert convert_string.convert_name("banana") == "011_banana"
+    assert convert_string.convert_name("011") is None

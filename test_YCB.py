@@ -109,7 +109,7 @@ def test_all():
 
 
 # Write to CSV
-csv_file = './outputs/output.csv'
+csv_file = 'outputs/result_ycbv-test.csv'
 data_out = test_all()
 with open(csv_file, mode='w', newline='') as file:
     writer = csv.writer(file)
