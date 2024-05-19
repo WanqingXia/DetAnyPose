@@ -18,12 +18,14 @@ limitations under the License.
 from __future__ import annotations
 
 # Standard Library
+import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 # Third Party
+from PIL import Image
 import numpy as np
 import pandas as pd
 import torch
@@ -431,6 +433,8 @@ class PoseEstimator(torch.nn.Module):
                 images_crop_list.append(out_["images_crop"])
                 renders_list.append(out_["renders"])
 
+        if return_debug_data:
+            self.save_tensor_as_image(renders_list)
         # Combine all the information into data_TCO_type
         logits = torch.cat(logits_list)
         logits = logits.reshape([B, M])
@@ -665,3 +669,25 @@ class PoseEstimator(torch.nn.Module):
         data_TCO_filtered = data_TCO[df.index.tolist()]
 
         return data_TCO_filtered
+
+    def save_tensor_as_image(self, renders_list):
+        output_dir = './outputs/renders'
+        # Assuming renders_list is already defined
+        # For each tensor in renders_list
+        for i, render in enumerate(renders_list):
+            batch_size = render.shape[0]
+            # Process each image in the batch
+            for j in range(batch_size):
+                # Extract the first three channels (RGB) of the j-th image in the i-th tensor
+                rgb_tensor = render[j, :3, :, :]
+                # Save each image
+                image_filename = os.path.join(output_dir, f'render_image_{i*128 + j}.png')
+
+                # Assuming the tensor is in shape (C, H, W)
+                # Convert tensor to numpy array and transpose to (H, W, C)
+                img_array = rgb_tensor.permute(1, 2, 0).cpu().numpy()
+                # Denormalize the image
+                img_array = (img_array * 255).astype('uint8')
+                # Create and save the image
+                img = Image.fromarray(img_array)
+                img.save(image_filename)

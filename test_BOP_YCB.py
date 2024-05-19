@@ -60,29 +60,34 @@ def test_all():
                 pred = MMDet_SAM.run_detector(rgb.copy(), desc_name)
 
                 if len(pred['labels']) > 0:
-                    mask_path = mask_files[(objs_in_scene * num + index)]
-                    mask = Image.open(mask_path)
-                    mask = np.array(mask, dtype=bool)
-                    best_iou = 0
-                    for pred_mask in pred['masks']:
-                        pred_mask = pred_mask.cpu().numpy().astype(np.uint8)
-                        pred_mask = np.transpose(pred_mask, (1, 2, 0))
-                        pred_mask = np.squeeze(pred_mask, axis=-1)
-                        iou = calculate_iou(pred_mask, mask)
-                        if iou > best_iou:
-                            best_iou = iou
-                    if best_iou > 0.6:
-                        best_pred = validate_preds(rgb.copy(), pred, DINOv2)
-                        best_mask = pred['masks'][best_pred]
-                        best_mask = best_mask.cpu().numpy().astype(np.uint8)
-                        best_mask = np.transpose(best_mask, (1, 2, 0))
-                        best_mask = np.squeeze(best_mask, axis=-1)
-
-                        if calculate_iou(best_mask, mask) > 0.6:
-                            bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                            ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
-                            pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
-                            success_flag = True
+                    # mask_path = mask_files[(objs_in_scene * num + index)]
+                    # mask = Image.open(mask_path)
+                    # mask = np.array(mask, dtype=bool)
+                    # best_iou = 0
+                    # for pred_mask in pred['masks']:
+                    #     pred_mask = pred_mask.cpu().numpy().astype(np.uint8)
+                    #     pred_mask = np.transpose(pred_mask, (1, 2, 0))
+                    #     pred_mask = np.squeeze(pred_mask, axis=-1)
+                    #     iou = calculate_iou(pred_mask, mask)
+                    #     if iou > best_iou:
+                    #         best_iou = iou
+                    # if best_iou > 0.6:
+                    #     best_pred = validate_preds(rgb.copy(), pred, DINOv2)
+                    #     best_mask = pred['masks'][best_pred]
+                    #     best_mask = best_mask.cpu().numpy().astype(np.uint8)
+                    #     best_mask = np.transpose(best_mask, (1, 2, 0))
+                    #     best_mask = np.squeeze(best_mask, axis=-1)
+                    #
+                    #     if calculate_iou(best_mask, mask) > 0.6:
+                    #         bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    #         ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+                    #         pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+                    #         success_flag = True
+                    best_pred = np.argmax(pred['scores'])
+                    bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+                    pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+                    success_flag = True
 
                 t += time.time() - tic
                 if success_flag:
@@ -113,7 +118,7 @@ def test_all():
 
 
 # Write to CSV
-csv_file = 'outputs/resultv3_ycbv-test.csv'
+csv_file = 'outputs/resultv5_ycbv-test.csv'
 data_out = test_all()
 with open(csv_file, mode='w', newline='') as file:
     writer = csv.writer(file)

@@ -7,14 +7,14 @@ from fbdinov2 import fbdinov2
 from megapose import nvmegapose
 from utils.choose import choose_from_viewpoints, validate_preds
 from scipy.io import loadmat
-from utils.convert import Convert_String
+from utils.convert import Convert_YCB
 
 
 device = 'cuda:0'
 MMDet_SAM = mmdet_sam.MMDet_SAM(device)
 DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
 Megapose = nvmegapose.Megapose(device)
-convert_string = Convert_String()
+Convert_YCB = Convert_YCB()
 
 mat = loadmat('./data/drill/image_meta.mat')
 rgb = cv2.imread('./data/drill/image_rgb.png')
@@ -46,5 +46,4 @@ rgb = np.array(rgb, dtype=np.uint8)
 # image.save('output_image.png')
 #
 bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-Megapose.inference(rgb, depth, convert_string.convert(pred['labels'][best_pred]), bbox)
-
+Megapose.inference(rgb, depth, Convert_YCB.convert_name(pred['labels'][best_pred]), bbox)
