@@ -19,7 +19,7 @@ folder_paths = sorted([p for p in (Path(root_path) / 'test').glob('*') if p.is_d
 Convert_YCB = Convert_YCB()
 
 MMDet_SAM = mmdet_sam.MMDet_SAM(device)
-DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
+DINOv2 = fbdinov2.DINOv2(device, "./viewpoints_42")
 Megapose = nvmegapose.Megapose(device, Convert_YCB)
 
 object_list = Convert_YCB.get_object_list()
@@ -57,9 +57,39 @@ def test_all():
 
                 ycb_name = Convert_YCB.convert_number(obj_id)
                 desc_name = Convert_YCB.convert_name(ycb_name)
+                t1 = time.time()
                 pred = MMDet_SAM.run_detector(rgb.copy(), desc_name)
+                t2 = time.time()
+                # print("mmdet+sam time {}".format(t2-t1))
 
                 if len(pred['labels']) > 0:
+                    """Testing code for DINOv2 scores, only masked areas"""
+                    best_pred = validate_preds(rgb.copy(), pred, DINOv2)
+                    t3 = time.time()
+                    # print("Dinov2 time {}".format(t3 - t2))
+                    bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+
+                    mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
+                    mask = np.transpose(mask, (1, 2, 0))
+                    rgb = np.array(rgb, dtype=np.uint8)
+                    rgb_masked = rgb * mask
+                    mask = mask.squeeze(axis=-1)
+                    depth_masked = depth * mask
+
+                    pose_estimation = Megapose.inference(rgb_masked, depth_masked, ycb_name, bbox)
+                    t4 = time.time()
+                    # print("Megapose time {}".format(t4 - t3))
+                    success_flag = True
+
+                    """Testing code for DINOv2 scores"""
+                    # best_pred = validate_preds(rgb.copy(), pred, DINOv2)
+                    # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+                    # pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+                    # success_flag = True
+
+                    """Testing code for DINOv2 scores with ground truth masks"""
                     # mask_path = mask_files[(objs_in_scene * num + index)]
                     # mask = Image.open(mask_path)
                     # mask = np.array(mask, dtype=bool)
@@ -71,6 +101,7 @@ def test_all():
                     #     iou = calculate_iou(pred_mask, mask)
                     #     if iou > best_iou:
                     #         best_iou = iou
+                    #
                     # if best_iou > 0.6:
                     #     best_pred = validate_preds(rgb.copy(), pred, DINOv2)
                     #     best_mask = pred['masks'][best_pred]
@@ -83,11 +114,13 @@ def test_all():
                     #         ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
                     #         pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
                     #         success_flag = True
-                    best_pred = np.argmax(pred['scores'])
-                    bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                    ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
-                    pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
-                    success_flag = True
+
+                    """Testing code for best scores"""
+                    # best_pred = np.argmax(pred['scores'])
+                    # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+                    # pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+                    # success_flag = True
 
                 t += time.time() - tic
                 if success_flag:
@@ -113,12 +146,13 @@ def test_all():
                     for i in range(len(data) - objs_in_scene, len(data)):
                         data[i][-1] = t
                     t = 0
+                # print("Next object!")
 
     return data
 
 
 # Write to CSV
-csv_file = 'outputs/resultv5_ycbv-test.csv'
+csv_file = 'outputs/resultv8_ycbv-test.csv'
 data_out = test_all()
 with open(csv_file, mode='w', newline='') as file:
     writer = csv.writer(file)

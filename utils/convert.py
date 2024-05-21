@@ -1,6 +1,8 @@
 class Convert_YCB:
     def __init__(self):
         self.conversion_dict, self.name_to_number_dict, self.number_to_name_dict = self.create_conversion_dict()
+        self.object_list = list(self.name_to_number_dict.keys())
+        self.desc_names_list = [self.convert_name(name) for name in self.object_list]
 
     def convert_name(self, input_string):
         # Return the converted string if available, otherwise return the original string
@@ -16,10 +18,10 @@ class Convert_YCB:
             raise ValueError("The input should either be a string or an int")
 
     def get_object_list(self):
-        return list(self.conversion_dict.keys())
+        return self.object_list
 
     def get_desc_names_list(self):
-        return list(self.conversion_dict.values())
+        return self.desc_names_list
 
     @staticmethod
     def create_conversion_dict():
@@ -30,7 +32,7 @@ class Convert_YCB:
         004_sugar_box yellow_sugar_cardbox
         005_tomato_soup_can red_cylindrical_can
         006_mustard_bottle yellow_mustard_bottle
-        007_tuna_fish_can round_fish_can
+        007_tuna_fish_can tuna_fish_can
         008_pudding_box brown_jelly_cardbox
         009_gelatin_box red_jelly_cardbox
         010_potted_meat_can spam_rectangular_can

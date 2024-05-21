@@ -100,6 +100,9 @@ class PoseEstimator(torch.nn.Module):
         self._SO3_grid = transform_utils.load_SO3_grid(grid_size)
         self._SO3_grid = self._SO3_grid.cuda()
 
+    def attach_renders(self, renders):
+        self.renders = renders
+
     @torch.no_grad()
     def forward_refiner(
         self,
@@ -433,8 +436,174 @@ class PoseEstimator(torch.nn.Module):
                 images_crop_list.append(out_["images_crop"])
                 renders_list.append(out_["renders"])
 
+        # Combine all the information into data_TCO_type
+        logits = torch.cat(logits_list)
+        logits = logits.reshape([B, M])
+
+        scores = torch.cat(scores_list)
+        scores = scores.reshape([B, M])
+
+        bboxes = torch.cat(bboxes_list, dim=0)
+
+        # [B*M, 4, 4]
+        TCO = torch.cat(TCO_init)
+        TCO_reshape = TCO.reshape([B, M, 4, 4])
+
+        debug_data = dict()
+
         if return_debug_data:
-            self.save_tensor_as_image(renders_list)
+            images_crop = torch.cat(images_crop_list)
+            renders = torch.cat(renders_list)
+
+            H = images_crop.shape[2]
+            W = images_crop.shape[3]
+
+            debug_data = {
+                "images_crop": images_crop.reshape([B, M, -1, H, W]),
+                "renders": renders.reshape([B, M, -1, H, W]),
+            }
+
+        df_hypotheses["coarse_logit"] = logits.flatten().cpu().numpy()
+        df_hypotheses["coarse_score"] = scores.flatten().cpu().numpy()
+
+        elapsed = time.time() - start_time
+
+        timing_str = (
+            f"time: {elapsed:.2f}, model_time: {model_time:.2f}, render_time: {render_time:.2f}"
+        )
+
+        extra_data = {
+            "render_time": render_time,
+            "model_time": model_time,
+            "time": elapsed,
+            "logits": logits,  # [B,]
+            "scores": scores,  # [B,]
+            "TCO": TCO_reshape,  # [B,M,4,4]
+            "debug": debug_data,
+            "n_batches": len(dl),
+            "timing_str": timing_str,
+        }
+
+        data_TCO = PandasTensorCollection(df_hypotheses, poses=TCO, bboxes=bboxes)
+        return data_TCO, extra_data
+
+    @torch.no_grad()
+    def forward_coarse_model_with_renders(
+        self,
+        observation: ObservationTensor,
+        detections: DetectionsType,
+        cuda_timer: bool = False,
+        return_debug_data: bool = False,
+    ) -> Tuple[PoseEstimatesType, dict]:
+        """Generates pose hypotheses and scores them with the coarse model.
+
+        - Generates coarse hypotheses using the SO(3) grid.
+        - Scores them using the coarse model.
+        """
+
+        start_time = time.time()
+
+        megapose.inference.types.assert_detections_valid(detections)
+
+        bsz_images = self.bsz_images
+        coarse_model = self.coarse_model
+        SO3_grid = self._SO3_grid
+        B = len(detections)
+        M = self._SO3_grid.shape[0]
+
+        # Add M rows for each row in detections
+        df = detections.infos
+        df_concat = []
+        for tc_idx, row in df.iterrows():
+            df_tmp = pd.DataFrame([row] * M)
+            df_tmp["hypothesis_id"] = list(range(M))
+            df_tmp["bbox_id"] = tc_idx
+            df_concat.append(df_tmp)
+
+        # Each row in detections is now repeated M times
+        # and has the hypothesis_id field.
+        df_hypotheses = pd.concat(df_concat)
+        df_hypotheses.reset_index()
+
+        ids = torch.arange(len(df_hypotheses))
+        ds = TensorDataset(ids)
+        dl = DataLoader(ds, batch_size=bsz_images)
+        device = observation.images.device
+
+        images_crop_list = []
+        renders_list = []
+        logits_list = []
+        scores_list = []
+        bboxes_list = []
+
+        render_time = 0
+        model_time = 0
+        TCO_init = []
+
+        renders = self.renders[df["label"].iloc[0]]
+        renders = renders.to(device)
+
+        for (batch_ids,) in dl:
+
+            # b = bsz_images
+            df_ = df_hypotheses.iloc[batch_ids.cpu().numpy()]
+
+            batch_im_ids_ = torch.as_tensor(df_["batch_im_id"].values, device=device)
+
+            m_idx = torch.as_tensor(df_["hypothesis_id"].values, device=device)
+
+            labels_ = df_["label"].tolist()
+            bbox_ids_ = torch.as_tensor(df_["bbox_id"].values, device=device)
+
+            images_ = observation.images[batch_im_ids_]
+            K_ = observation.K[batch_im_ids_]
+
+            # We are indexing into the original detections TensorCollection.
+            bboxes_ = detections.bboxes[bbox_ids_]
+            meshes_ = coarse_model.mesh_db.select(labels_)
+
+            # [b,N,3]
+            points_ = meshes_.points
+
+            # [b,3,3]
+            SO3_grid_ = SO3_grid[m_idx]
+
+            # Compute the initial poses
+            # [b,4,4]
+            TCO_init_ = TCO_init_from_boxes_autodepth_with_R(
+                bboxes_,
+                points_,
+                K_,
+                SO3_grid_,
+            )
+
+            del points_
+
+            renders_ = renders[m_idx]
+
+            out_ = coarse_model.forward_coarse_with_renders(
+                renders=renders_,
+                images=images_,
+                K=K_,
+                labels=labels_,
+                TCO_input=TCO_init_,
+                cuda_timer=cuda_timer,
+                return_debug_data=return_debug_data,
+            )
+
+            render_time += out_["render_time"]
+            model_time += out_["model_time"]
+
+            logits_list.append(out_["logits"])
+            scores_list.append(out_["scores"])
+            bboxes_list.append(bboxes_)
+            TCO_init.append(TCO_init_)
+
+            if return_debug_data:
+                images_crop_list.append(out_["images_crop"])
+                renders_list.append(out_["renders"])
+        del renders
+
         # Combine all the information into data_TCO_type
         logits = torch.cat(logits_list)
         logits = logits.reshape([B, M])
@@ -577,12 +746,21 @@ class PoseEstimator(torch.nn.Module):
                 )
 
             # Run the coarse estimator using gt_detections
-            data_TCO_coarse, coarse_extra_data = self.forward_coarse_model(
+            # original code with online rendering
+            # data_TCO_coarse, coarse_extra_data = self.forward_coarse_model(
+            #     observation=observation,
+            #     detections=detections,
+            #     cuda_timer=cuda_timer,
+            # )
+
+            # new code with rendered images
+            data_TCO_coarse, coarse_extra_data = self.forward_coarse_model_with_renders(
                 observation=observation,
                 detections=detections,
                 cuda_timer=cuda_timer,
             )
             timing_str += f"coarse={coarse_extra_data['time']:.2f}, "
+            # print(f"coarse={coarse_extra_data['time']:.2f}, ")
 
             # Extract top-K coarse hypotheses
             data_TCO_filtered = self.filter_pose_estimates(
@@ -602,6 +780,7 @@ class PoseEstimator(torch.nn.Module):
         )
         data_TCO_refined = preds[f"iteration={n_refiner_iterations}"]
         timing_str += f"refiner={refiner_extra_data['time']:.2f}, "
+        # print(f"refiner={refiner_extra_data['time']:.2f}, ")
 
         # Score the refined poses using the coarse model.
         data_TCO_scored, scoring_extra_data = self.forward_scoring_model(
@@ -610,6 +789,7 @@ class PoseEstimator(torch.nn.Module):
             cuda_timer=cuda_timer,
         )
         timing_str += f"scoring={scoring_extra_data['time']:.2f}, "
+        # print(f"scoring={scoring_extra_data['time']:.2f}, ")
 
         # Extract the highest scoring pose estimate for each instance_id
         data_TCO_final_scored = self.filter_pose_estimates(
@@ -623,6 +803,7 @@ class PoseEstimator(torch.nn.Module):
             data_TCO_final = data_TCO_depth_refiner
             depth_refiner_time = time.time() - depth_refiner_start
             timing_str += f"depth refiner={depth_refiner_time:.2f}"
+            # print(f"depth refiner={depth_refiner_time:.2f}")
         else:
             data_TCO_depth_refiner = None
             data_TCO_final = data_TCO_final_scored
@@ -670,24 +851,83 @@ class PoseEstimator(torch.nn.Module):
 
         return data_TCO_filtered
 
-    def save_tensor_as_image(self, renders_list):
-        output_dir = './outputs/renders'
+    def save_tensor_as_image(self, renders, save_dir):
         # Assuming renders_list is already defined
         # For each tensor in renders_list
-        for i, render in enumerate(renders_list):
-            batch_size = render.shape[0]
-            # Process each image in the batch
-            for j in range(batch_size):
-                # Extract the first three channels (RGB) of the j-th image in the i-th tensor
-                rgb_tensor = render[j, :3, :, :]
-                # Save each image
-                image_filename = os.path.join(output_dir, f'render_image_{i*128 + j}.png')
+        batch_size = renders.shape[0]
+        # Process each image in the batch
+        for i in range(batch_size):
+            # Extract the first three channels (RGB) of the j-th image in the i-th tensor
+            rgb_tensor = renders[i, :3, :, :]
+            # Save each image
+            rgb_filename = os.path.join(save_dir, f'rgb_{i}.png')
 
-                # Assuming the tensor is in shape (C, H, W)
-                # Convert tensor to numpy array and transpose to (H, W, C)
-                img_array = rgb_tensor.permute(1, 2, 0).cpu().numpy()
-                # Denormalize the image
-                img_array = (img_array * 255).astype('uint8')
-                # Create and save the image
-                img = Image.fromarray(img_array)
-                img.save(image_filename)
+            # Assuming the tensor is in shape (C, H, W)
+            # Convert tensor to numpy array and transpose to (H, W, C)
+            rgb_array = rgb_tensor.permute(1, 2, 0).cpu().numpy()
+            # Denormalize the image
+            rgb_array = (rgb_array * 255).astype('uint8')
+            # Create and save the image
+            img = Image.fromarray(rgb_array)
+            img.save(rgb_filename)
+
+            normal_tensor = renders[i, 3:6, :, :]
+            normal_filename = os.path.join(save_dir, f'normal_{i}.png')
+            normal_array = normal_tensor.permute(1, 2, 0).cpu().numpy()
+            # Denormalize the image
+            normal_array = (normal_array * 255).astype('uint8')
+            # Create and save the image
+            img = Image.fromarray(normal_array)
+            img.save(normal_filename)
+
+
+    @torch.no_grad()
+    def image_generation(
+        self,
+        save_dir,
+        detection: np.array,
+        K: np.array,
+        label: str = None,
+        device: str = 'cuda:0',
+    ):
+        """Generates pose hypotheses and images.
+
+        - Generates coarse hypotheses using the SO(3) grid.
+        """
+
+        coarse_model = self.coarse_model
+        M = self._SO3_grid.shape[0]
+        K = torch.as_tensor(K).float().to(device)
+        Ks = K.repeat(M, 1, 1)
+        detection = torch.as_tensor(detection).float().to(device)
+        # We are indexing into the original detections TensorCollection.
+        bboxes = detection.repeat(M, 1)
+
+        labels = [label] * M
+        meshes = coarse_model.mesh_db.select(labels)
+        # [b,N,3]
+        points = meshes.points
+
+        # Compute the initial poses
+        # [b,4,4]
+        TCO_init = TCO_init_from_boxes_autodepth_with_R(
+            bboxes,
+            points,
+            Ks,
+            self._SO3_grid,
+        )
+
+        del points
+
+        # create empty images for the render_images function
+        images = np.zeros([M, 3, 480, 640])
+        images = torch.as_tensor(images).float().to(device)
+
+        renders_out = coarse_model.render_images(
+            images=images,
+            K=Ks,
+            labels=labels,
+            TCO_input=TCO_init,
+        )
+
+        self.save_tensor_as_image(renders_out, save_dir)

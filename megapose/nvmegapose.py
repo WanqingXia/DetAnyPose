@@ -10,6 +10,8 @@ import numpy as np
 from bokeh.io import export_png
 from bokeh.plotting import gridplot
 from PIL import Image
+from torchvision import transforms
+import torch
 
 # MegaPose
 from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset
@@ -43,7 +45,10 @@ class Megapose:
         self.cad_path = Path("./bop_datasets/ycbv/models")
         self.object_dataset = self.make_ycb_object_dataset(self.cad_path)
         logger.info(f"Loading model {self.model_name}.")
-        self.pose_estimator = load_named_model(self.model_name, self.models_path, self.object_dataset).cuda()
+        self.pose_estimator = load_named_model(self.model_name, self.models_path, self.object_dataset).to(self.device)
+        self.renders_path = Path("./data/ycbv_generated")
+        renders = self.load_renders(self.renders_path)
+        self.pose_estimator.attach_renders(renders)
 
     def run_inference(self,
             example_dir: Path,
@@ -79,10 +84,10 @@ class Megapose:
         # make sure the size of camera input and images are same
         assert rgb.shape[:2] == self.camera_data.resolution
         assert depth.shape[:2] == self.camera_data.resolution
-        observation = ObservationTensor.from_numpy(rgb, depth, self.camera_data.K).cuda()
+        observation = ObservationTensor.from_numpy(rgb, depth, self.camera_data.K).to_cuda(self.device)
 
         object_data = [ObjectData(label=label, bbox_modal=bbox)]
-        detections = make_detections_from_object_data(object_data).cuda()
+        detections = make_detections_from_object_data(object_data).to(self.device)
 
         output, _ = self.pose_estimator.run_inference_pipeline(
             observation, detections=detections, run_detector=False, **self.model_info["inference_parameters"]
@@ -161,7 +166,7 @@ class Megapose:
 
     def load_detections(self, example_dir: Path) -> DetectionsType:
         input_object_data = self.load_object_data(example_dir / "inputs/object_data.json")
-        detections = make_detections_from_object_data(input_object_data).cuda()
+        detections = make_detections_from_object_data(input_object_data).to(self.device)
         return detections
 
     def make_object_dataset(self, cad_model_dir: Path) -> RigidObjectDataset:
@@ -210,3 +215,42 @@ class Megapose:
         output_fn.write_text(object_data_json)
         logger.info(f"Wrote predictions: {output_fn}")
         return
+
+    def load_renders(self, renders_path):
+        # Dictionary to hold the tensors for each sub-folder
+        folder_tensors = {}
+
+        # Transform to convert images to tensors and normalize by 255
+        transform = transforms.Compose([
+            transforms.ToTensor(),  # Converts to [C, H, W] and scales pixel values to [0, 1]
+        ])
+
+        # Iterate over each sub-folder in the root directory
+        for sub_folder in os.listdir(renders_path):
+            sub_folder_path = os.path.join(renders_path, sub_folder)
+
+            if os.path.isdir(sub_folder_path):
+                # Initialize list to hold pairs of rgb and normal images
+                images_list = []
+                num_files = int(len(os.listdir(sub_folder_path)) / 2)
+
+                for i in range(num_files):
+                    # Load rgb image
+                    rgb_path = os.path.join(sub_folder_path, f'rgb_{i}.png')
+                    rgb_image = Image.open(rgb_path)
+                    rgb_tensor = transform(rgb_image)
+
+                    # Load normal image
+                    normal_path = os.path.join(sub_folder_path, f'normal_{i}.png')
+                    normal_image = Image.open(normal_path)
+                    normal_tensor = transform(normal_image)
+
+                    # Concatenate the rgb and normal tensors along the channel dimension
+                    combined_tensor = torch.cat((rgb_tensor, normal_tensor), dim=0)
+                    images_list.append(combined_tensor)
+
+                # Stack all image tensors to create a single tensor of shape [576, 6, H, W]
+                folder_tensor = torch.stack(images_list)
+                folder_tensors[sub_folder] = folder_tensor
+
+        return folder_tensors

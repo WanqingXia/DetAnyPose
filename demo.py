@@ -12,9 +12,9 @@ from utils.convert import Convert_YCB
 
 device = 'cuda:0'
 MMDet_SAM = mmdet_sam.MMDet_SAM(device)
-DINOv2 = fbdinov2.DINOv2("./viewpoints_42", device)
-Megapose = nvmegapose.Megapose(device)
+DINOv2 = fbdinov2.DINOv2(device, "./viewpoints_42")
 Convert_YCB = Convert_YCB()
+Megapose = nvmegapose.Megapose(device, Convert_YCB)
 
 mat = loadmat('./data/drill/image_meta.mat')
 rgb = cv2.imread('./data/drill/image_rgb.png')

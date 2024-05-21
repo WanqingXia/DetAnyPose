@@ -133,7 +133,7 @@ class MMDet_SAM:
             self.pred_dict['masks'] = pred_instances.masks
 
         if self.pred_dict['boxes'].shape[0] == 0:
-            print('No objects detected !')
+            # print('No objects detected !')
             return self.pred_dict
 
         if not self.only_det:

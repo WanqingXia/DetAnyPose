@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 
 class DINOv2:
-    def __init__(self, viewpoints_path, device):
+    def __init__(self, device, viewpoints_path):
         self.viewpoints_path = viewpoints_path
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
