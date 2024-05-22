@@ -27,27 +27,27 @@ class Convert_YCB:
     def create_conversion_dict():
         # Original mapping provided in the question
         mapping_text = """
-        002_master_chef_can blue_cylindrical_can
-        003_cracker_box red_cracker_cardbox
-        004_sugar_box yellow_sugar_cardbox
-        005_tomato_soup_can red_cylindrical_can
-        006_mustard_bottle yellow_mustard_bottle
-        007_tuna_fish_can tuna_fish_can
-        008_pudding_box brown_jelly_cardbox
-        009_gelatin_box red_jelly_cardbox
-        010_potted_meat_can spam_rectangular_can
+        002_master_chef_can blue cylindrical can
+        003_cracker_box red cracker cardbox
+        004_sugar_box yellow sugar cardbox
+        005_tomato_soup_can red cylindrical can
+        006_mustard_bottle yellow mustard bottle
+        007_tuna_fish_can tuna fish tin can
+        008_pudding_box brown jelly cardbox
+        009_gelatin_box red jelly cardbox
+        010_potted_meat_can spam rectangular can
         011_banana banana
-        019_pitcher_base blue_cup
-        021_bleach_cleanser white_bleach_bottle
-        024_bowl red_bowl
-        025_mug red_cup
+        019_pitcher_base blue cup
+        021_bleach_cleanser white bleach bottle
+        024_bowl red bowl
+        025_mug red cup
         035_power_drill drill
-        036_wood_block wooden_block
+        036_wood_block wooden block
         037_scissors scissors
-        040_large_marker marker_pen
-        051_large_clamp black_clamp
-        052_extra_large_clamp big_black_clamp
-        061_foam_brick red_rectangular_block
+        040_large_marker marker pen
+        051_large_clamp black clamp
+        052_extra_large_clamp bigger black clamp
+        061_foam_brick red rectangular block
         """
         # Splitting the mapping text into lines and then into key-value pairs
         pairs = mapping_text.strip().split('\n')
@@ -56,11 +56,14 @@ class Convert_YCB:
         number_to_name = {}
 
         for idx, pair in enumerate(pairs, start=1):
-            key, value = pair.strip().split()
-            conversion_dict[key] = value
-            conversion_dict[value] = key  # This line allows bidirectional lookup
-            name_to_number[key] = idx
-            number_to_name[idx] = key
+            parts = pair.split(maxsplit=1)  # Split the line at the first space
+            if len(parts) == 2:
+                key = parts[0]  # First part
+                value = parts[1]  # Second part
+                conversion_dict[key] = value
+                conversion_dict[value] = key  # This line allows bidirectional lookup
+                name_to_number[key] = idx
+                number_to_name[idx] = key
 
         return conversion_dict, name_to_number, number_to_name
 

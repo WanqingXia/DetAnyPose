@@ -5,7 +5,7 @@ from utils.convert import Convert_YCB
 convert_ycb = Convert_YCB()
 
 # Load the CSV file
-file_path = './outputs/resultv7_ycbv-test.csv'
+file_path = './outputs/resultsam3_ycbv-test.csv'
 df = pd.read_csv(file_path, delimiter=',')
 
 # Strip any leading/trailing spaces from column names
