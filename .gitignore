@@ -151,14 +151,11 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 cache/
-wandb/
 dinov2/
 mmdetection/
 models/
-viewpoints_42/
 outputs/
 megapose/data/
 data/
 bop_toolkit/
 bop_datasets/
-efficientvit/

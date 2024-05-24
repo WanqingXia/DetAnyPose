@@ -13,6 +13,9 @@ def get_embedding(image, mask, box, dinov2):
     x0, y0, x1, y1 = map(int, box)
     cropped_masked_img = masked_img[y0:y1, x0:x1]
 
+    # Only used for testing without SAM
+    # cropped_masked_img = image[y0:y1, x0:x1]
+
     # Calculate the size needed for a square image
     height, width, _ = cropped_masked_img.shape
     side_length = max(width, height)
@@ -138,8 +141,7 @@ def validate_preds(img, pred, dinov2):
 
             # Calculate similarity
             reference_embedding = dinov2.viewpoints_embeddings[label]
-            for col, ref in enumerate(reference_embedding):
-                cos_similarities[i, col] = CosineSim(embed_img, ref).item()
+            cos_similarities[i, :] = CosineSim(embed_img, reference_embedding)
 
         # Choose the best viewpoint
         best_pred = np.argmax(np.mean(cos_similarities, axis=1))

@@ -713,7 +713,7 @@ class PoseEstimator(torch.nn.Module):
                 steps in the pipeline.
 
         """
-
+        self.device = observation.K.device
         timing_str = ""
         timer = SimpleTimer()
         timer.start()
@@ -731,7 +731,7 @@ class PoseEstimator(torch.nn.Module):
             if detections is None and run_detector:
                 start_time = time.time()
                 detections = self.forward_detection_model(observation)
-                detections = detections.cuda()
+                detections = detections.to(self.device)
                 elapsed = time.time() - start_time
                 timing_str += f"detection={elapsed:.2f}, "
 
@@ -851,16 +851,19 @@ class PoseEstimator(torch.nn.Module):
 
         return data_TCO_filtered
 
-    def save_tensor_as_image(self, renders, save_dir):
+    def save_tensor_as_image(self, renders, TCO, save_dir):
         # Assuming renders_list is already defined
         # For each tensor in renders_list
         batch_size = renders.shape[0]
+        TCO = TCO.cpu().numpy()
         # Process each image in the batch
+        np.save(os.path.join(save_dir, f'TCO_{batch_size}.npy'), TCO)
         for i in range(batch_size):
+            padded_num = "{:03d}".format(i)
             # Extract the first three channels (RGB) of the j-th image in the i-th tensor
             rgb_tensor = renders[i, :3, :, :]
             # Save each image
-            rgb_filename = os.path.join(save_dir, f'rgb_{i}.png')
+            rgb_filename = os.path.join(save_dir, f'rgb_{padded_num}.png')
 
             # Assuming the tensor is in shape (C, H, W)
             # Convert tensor to numpy array and transpose to (H, W, C)
@@ -872,7 +875,7 @@ class PoseEstimator(torch.nn.Module):
             img.save(rgb_filename)
 
             normal_tensor = renders[i, 3:6, :, :]
-            normal_filename = os.path.join(save_dir, f'normal_{i}.png')
+            normal_filename = os.path.join(save_dir, f'normal_{padded_num}.png')
             normal_array = normal_tensor.permute(1, 2, 0).cpu().numpy()
             # Denormalize the image
             normal_array = (normal_array * 255).astype('uint8')
@@ -930,4 +933,4 @@ class PoseEstimator(torch.nn.Module):
             TCO_input=TCO_init,
         )
 
-        self.save_tensor_as_image(renders_out, save_dir)
+        self.save_tensor_as_image(renders_out, TCO_init, save_dir)

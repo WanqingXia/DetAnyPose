@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
+import time
 
 # Grounding DINO
 try:
@@ -51,19 +52,18 @@ except ImportError:
 
 class MMDet_SAM:
     def __init__(self, device):
+        self.device = device
         self.image = None
         self.image_path = ""
         self.pred_dict = {}
-        self.det_config = "./mmdet_sam/configs/Detic_LI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.py"  # path to det config file, no default specified
-        self.det_weight = "./models/detic_centernet2_swin-b_fpn_4x_lvis-coco-in21k_20230120-0d301978.pth"  # path to det weight file, no default specified
+        self.det_config = "./mmdet_sam/configs/Detic_LI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.py"
+        self.det_weight = "./models/detic_centernet2_swin-b_fpn_4x_lvis-coco-in21k_20230120-0d301978.pth"
         self.only_det = False  # Default is the equivalent of not using --only-det
         self.not_show_label = False  # Default is the equivalent of not using --not-show-label
         self.sam_type = 'vit_h'  # Default sam type
         self.sam_weight = './models/sam_vit_h_4b8939.pth'  # Default path to checkpoint file
         self.out_dir = 'outputs'  # Default output directory
         self.box_thr = 0.3  # Default box threshold
-        self.det_device = device  # Default device used for det inference
-        self.sam_device = device  # Default device used for sam inference
         self.cpu_off_load = False  # Default is the equivalent of not using --cpu-off-load
         self.use_detic_mask = False  # Default is the equivalent of not using --use-detic-mask
         self.text_prompt = ""  # text prompt, no default specified
@@ -80,16 +80,16 @@ class MMDet_SAM:
 
         if not self.cpu_off_load:
             if 'glip' in self.det_config:
-                self.det_model.model = self.det_model.model.to(self.det_device)
-                self.det_model.device = self.det_device
+                self.det_model.model = self.det_model.model.to(self.device)
+                self.det_model.device = self.device
             else:
-                self.det_model = self.det_model.to(self.det_device)
+                self.det_model = self.det_model.to(self.device)
 
         if not self.only_det:
             build_sam = sam_model_registry[self.sam_type]
             self.sam_model = SamPredictor(build_sam(checkpoint=self.sam_weight))
             if not self.cpu_off_load:
-                self.sam_model.mode = self.sam_model.model.to(self.sam_device)
+                self.sam_model.mode = self.sam_model.model.to(self.device)
 
     def build_detecter(self):
         config = Config.fromfile(self.det_config)

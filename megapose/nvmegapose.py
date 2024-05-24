@@ -50,29 +50,6 @@ class Megapose:
         renders = self.load_renders(self.renders_path)
         self.pose_estimator.attach_renders(renders)
 
-    def run_inference(self,
-            example_dir: Path,
-    ) -> None:
-
-        model_info = NAMED_MODELS[self.model_name]
-
-        observation = self.load_observation_tensor(
-            example_dir, load_depth=model_info["requires_depth"]
-        ).cuda()
-        detections = self.load_detections(example_dir).cuda()
-        object_dataset = self.make_object_dataset(example_dir)
-
-        logger.info(f"Loading model {self.model_name}.")
-        pose_estimator = load_named_model(self.model_name, self.models_path, object_dataset).cuda()
-
-        logger.info(f"Running inference.")
-        output, _ = pose_estimator.run_inference_pipeline(
-            observation, detections=detections, run_detector=False, **model_info["inference_parameters"]
-        )
-
-        self.save_predictions(example_dir, output)
-        return
-
     def inference(self, rgb, depth, label, bbox):
         """
         :param rgb: np array of the RGB image, np.uint8 type
@@ -84,7 +61,7 @@ class Megapose:
         # make sure the size of camera input and images are same
         assert rgb.shape[:2] == self.camera_data.resolution
         assert depth.shape[:2] == self.camera_data.resolution
-        observation = ObservationTensor.from_numpy(rgb, depth, self.camera_data.K).to_cuda(self.device)
+        observation = ObservationTensor.from_numpy(rgb, depth, self.camera_data.K).to_cuda(device=self.device)
 
         object_data = [ObjectData(label=label, bbox_modal=bbox)]
         detections = make_detections_from_object_data(object_data).to(self.device)
@@ -227,21 +204,23 @@ class Megapose:
 
         # Iterate over each sub-folder in the root directory
         for sub_folder in os.listdir(renders_path):
-            sub_folder_path = os.path.join(renders_path, sub_folder)
+            sub_folder_path = renders_path / sub_folder
 
             if os.path.isdir(sub_folder_path):
                 # Initialize list to hold pairs of rgb and normal images
+                png_files = sorted(list(sub_folder_path.rglob('*.png')))
                 images_list = []
-                num_files = int(len(os.listdir(sub_folder_path)) / 2)
+                num_files = int(len(png_files) / 2)
 
                 for i in range(num_files):
                     # Load rgb image
-                    rgb_path = os.path.join(sub_folder_path, f'rgb_{i}.png')
+                    padded_num = "{:03d}".format(i)
+                    rgb_path = os.path.join(sub_folder_path, f'rgb_{padded_num}.png')
                     rgb_image = Image.open(rgb_path)
                     rgb_tensor = transform(rgb_image)
 
                     # Load normal image
-                    normal_path = os.path.join(sub_folder_path, f'normal_{i}.png')
+                    normal_path = os.path.join(sub_folder_path, f'normal_{padded_num}.png')
                     normal_image = Image.open(normal_path)
                     normal_tensor = transform(normal_image)
 

@@ -11,17 +11,17 @@ from tqdm import tqdm
 
 class DINOv2:
     def __init__(self, device, viewpoints_path):
+        self.device = device  # Default device used for det inference
         self.viewpoints_path = viewpoints_path
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
         os.makedirs("./cache", exist_ok=True)
-        self.cache = "./cache/embeddings1024.pt"
+        self.cache = "./cache/embeddings48.pt"
         self.model = torch.hub.load('dinov2', 'dinov2_vitl14', source='local', pretrained=True)
+        self.model.to(self.device)
         self.model.load_state_dict(torch.load('./models/dinov2_vitl14_pretrain.pth'))
         self.out_dir = './outputs'  # Default output directory
-        self.device = device  # Default device used for det inference
-        self.model.to(self.device)
         os.makedirs(self.out_dir, exist_ok=True)
         # Resize the image
         self.dinov2_size = (224, 224)
@@ -80,30 +80,27 @@ class DINOv2:
             if folder_name not in self.viewpoints_images:
                 self.viewpoints_images[folder_name] = []
             # Extracts the last part of the path as the folder name
-            sub_folder_contents = {}
             if os.path.exists(folder):
-                for txt_file in sorted(list(folder.rglob('*.txt'))):
-                    img_file = Path(str(txt_file).replace('matrix.txt', 'color.png'))
-                    if os.path.isfile(txt_file):
-                        sub_folder_contents[txt_file] = np.loadtxt(txt_file)
-                        self.viewpoints_images[folder_name].append(str(img_file))  # convert to string for json
-                print(f'load data from {folder} finished, {len(sub_folder_contents)} data loaded')
-                self.viewpoints_poses[folder_name] = sub_folder_contents
+                for png_file in sorted(list(folder.rglob('*.png'))):
+                    if str(png_file.name).split('_')[0] == 'rgb':
+                        self.viewpoints_images[folder_name].append(str(png_file))  # convert to string for json
+                print(f'load data from {folder} finished, {len(self.viewpoints_images[folder_name])} data loaded')
             else:
                 print(f"The folder {folder} does not exist.")
 
     def create_cache(self, hash_value):
         for folder, image_list in tqdm(self.viewpoints_images.items()):
-            if folder not in self.viewpoints_embeddings:
-                self.viewpoints_embeddings[folder] = []
+            tensors_list = []
             for image in image_list:
                 img = Image.open(Path(image))
                 img = np.array(img)
                 img = self.forward(img)
-                self.viewpoints_embeddings[folder].append(img.cpu())
+                tensors_list.append(img.cpu())
                 img.detach()
                 del img
                 torch.cuda.empty_cache()  # Clear unused memory
+            tensor_cat = torch.cat(tensors_list, dim=0)
+            self.viewpoints_embeddings[folder] = tensor_cat
 
         data_to_save = {
             'tensors': self.viewpoints_embeddings,
