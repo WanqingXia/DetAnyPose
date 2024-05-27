@@ -8,7 +8,6 @@ from fbdinov2 import fbdinov2
 from megapose import nvmegapose
 from utils.choose import validate_preds
 from utils.convert import Convert_YCB
-from utils.calculate_iou import calculate_iou
 import time
 import csv
 import json
@@ -28,7 +27,7 @@ object_list = Convert_YCB.get_object_list()
 # Initialize the list to store result
 data = []
 
-def test_all():
+def run_all():
     for count, folder in enumerate(folder_paths):
         print('Evaluating images from %s' % folder)
         rgb_files = sorted((folder / "rgb").rglob('*.png'))
@@ -58,13 +57,10 @@ def test_all():
 
                 ycb_name = Convert_YCB.convert_number(obj_id)
                 desc_name = Convert_YCB.convert_name(ycb_name)
-                t1 = time.time()
                 pred = MMDet_SAM.run_detector(rgb.copy(), desc_name)
-                t2 = time.time()
-                # print("mmdet+sam time {}".format(t2-t1))
 
                 if len(pred['labels']) > 0:
-                    """Testing code for Detic + SAM + DINOv2 scores"""
+                    # """Testing code for Detic + SAM + DINOv2 scores"""
                     # best_pred = validate_preds(rgb.copy(), pred, DINOv2)
                     # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
                     # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
@@ -79,8 +75,7 @@ def test_all():
                     # pose_estimation = Megapose.inference(rgb_masked, depth_masked, ycb_name, bbox)
                     # success_flag = True
 
-                    """Testing code for Detic + DINOv2 scores"""
-                    # print("Running Detic + Dinov2 with cuda {}".format(device))
+                    """Testing code for Detic + DINOv2 (need to modify the validate_preds function)"""
                     # best_pred = validate_preds(rgb.copy(), pred, DINOv2)
                     # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
                     # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
@@ -88,28 +83,26 @@ def test_all():
                     # success_flag = True
 
                     """Testing code for Detic + SAM"""
-                    # print("Running Detic + SAM with cuda {}".format(device))
-                    # best_pred = np.argmax(pred['scores'])
-                    # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                    # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
-                    #
-                    # mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
-                    # mask = np.transpose(mask, (1, 2, 0))
-                    # rgb = np.array(rgb, dtype=np.uint8)
-                    # rgb_masked = rgb * mask
-                    # mask = mask.squeeze(axis=-1)
-                    # depth_masked = depth * mask
-                    #
-                    # pose_estimation = Megapose.inference(rgb_masked, depth_masked, ycb_name, bbox)
-                    # success_flag = True
-
-                    """Testing code for Detic"""
-                    # print("Running Detic with cuda {}".format(device))
                     best_pred = np.argmax(pred['scores'])
                     bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
                     ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
-                    pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+
+                    mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
+                    mask = np.transpose(mask, (1, 2, 0))
+                    rgb = np.array(rgb, dtype=np.uint8)
+                    rgb_masked = rgb * mask
+                    mask = mask.squeeze(axis=-1)
+                    depth_masked = depth * mask
+
+                    pose_estimation = Megapose.inference(rgb_masked, depth_masked, ycb_name, bbox)
                     success_flag = True
+
+                    """Testing code for Detic"""
+                    # best_pred = np.argmax(pred['scores'])
+                    # bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
+                    # ycb_name = Convert_YCB.convert_name(pred['labels'][best_pred])
+                    # pose_estimation = Megapose.inference(rgb.copy(), depth, ycb_name, bbox)
+                    # success_flag = True
 
                 t += time.time() - tic
                 if success_flag:
@@ -135,14 +128,13 @@ def test_all():
                     for i in range(len(data) - objs_in_scene, len(data)):
                         data[i][-1] = t
                     t = 0
-                # print("Next object!")
 
     return data
 
 
 # Write to CSV
-csv_file = 'outputs/resultv14_ycbv-test.csv'
-data_out = test_all()
+csv_file = 'outputs/DeticSam_ycbv-test.csv'
+data_out = run_all()
 with open(csv_file, mode='w', newline='') as file:
     writer = csv.writer(file)
     # Write the header

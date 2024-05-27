@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import shutil
-from utils.similarity import *
+from utils.similarity import CosineSimilarity
 from utils.convert import Convert_YCB
 
 

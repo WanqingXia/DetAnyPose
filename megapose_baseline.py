@@ -19,7 +19,7 @@ object_list = Convert_YCB.get_object_list()
 data = []
 
 
-def test_all():
+def baseline():
     for count, folder in enumerate(folder_paths):
         print('Evaluating images from %s' % folder)
         rgb_files = sorted((folder / "rgb").rglob('*.png'))
@@ -74,7 +74,7 @@ def test_all():
 
 # Write to CSV
 csv_file = 'outputs/resultv4_ycbv-test.csv'
-data_out = test_all()
+data_out = baseline()
 with open(csv_file, mode='w', newline='') as file:
     writer = csv.writer(file)
     # Write the header

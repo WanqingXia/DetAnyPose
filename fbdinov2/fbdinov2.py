@@ -16,8 +16,7 @@ class DINOv2:
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
-        os.makedirs("./cache", exist_ok=True)
-        self.cache = "./cache/embeddings48.pt"
+        self.cache = "./data/embeddings48.pt"
         self.model = torch.hub.load('dinov2', 'dinov2_vitl14', source='local', pretrained=True)
         self.model.to(self.device)
         self.model.load_state_dict(torch.load('./models/dinov2_vitl14_pretrain.pth'))
@@ -49,6 +48,22 @@ class DINOv2:
         if not isinstance(img, np.ndarray):
             raise ValueError("The image must be converted to np array before processing.")
         with torch.no_grad():
+            height, width = img.shape[:2]
+
+            if height != width:
+                # Determine the size of the new square image.
+                new_size = max(height, width)
+
+                # Create a new square image with zeros and three channels.
+                padded_image = np.zeros((new_size, new_size, 3), dtype=img.dtype)
+
+                # Determine the starting positions to center the original image.
+                start_y = (new_size - height) // 2
+                start_x = (new_size - width) // 2
+
+                # Copy the original image into the center of the padded image.
+                padded_image[start_y:start_y + height, start_x:start_x + width, :] = img
+
             img = np.transpose(img, (2, 0, 1))  # HWC to CHW
             img = np.ascontiguousarray(img).astype(np.float32)  # Ensure the image is contiguous, convert it to float32
             img = torch.from_numpy(img)  # Convert the numpy array to a PyTorch tensor.
@@ -82,7 +97,9 @@ class DINOv2:
             # Extracts the last part of the path as the folder name
             if os.path.exists(folder):
                 for png_file in sorted(list(folder.rglob('*.png'))):
-                    if str(png_file.name).split('_')[0] == 'rgb':
+                    png_stem = png_file.stem
+                    png_stem = png_stem.split('_')
+                    if png_stem[0] == 'rgb' and int(png_stem[1]) % 12 == 0:
                         self.viewpoints_images[folder_name].append(str(png_file))  # convert to string for json
                 print(f'load data from {folder} finished, {len(self.viewpoints_images[folder_name])} data loaded')
             else:
