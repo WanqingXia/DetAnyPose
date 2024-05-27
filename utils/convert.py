@@ -1,3 +1,20 @@
+"""
+convert.py
+
+Author: Wanqing Xia
+Email: wxia612@aucklanduni.ac.nz
+
+This script contains the Convert_YCB class which is used for converting between different naming conventions
+in the YCB dataset. The class provides methods for converting between the original object names and
+their corresponding descriptions, as well as between object names and their numerical identifiers.
+
+The class also provides methods for retrieving the list of all object names and their corresponding descriptions
+in the dataset.
+
+The conversion mappings are defined in a static method and stored in dictionaries for efficient lookup.
+The class also includes some basic tests to verify the correctness of the conversions.
+"""
+
 class Convert_YCB:
     def __init__(self):
         self.conversion_dict, self.name_to_number_dict, self.number_to_name_dict = self.create_conversion_dict()

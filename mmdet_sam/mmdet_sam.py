@@ -34,7 +34,7 @@ except ImportError:
 import sys
 
 from mmengine.config import Config
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 # segment anything
 from segment_anything import SamPredictor, sam_model_registry
 
@@ -153,48 +153,54 @@ class MMDet_SAM:
         return self.pred_dict
 
     def draw_outcome(self, image, pred, show_result=False, save_copy=False, random_color=True, show_label=True):
-        plt.figure(figsize=(10, 10))
-        plt.imshow(image)
+        # Convert cv2 image (BGR) to PIL image (RGB)
+        img = Image.fromarray(image)
+        draw = ImageDraw.Draw(img)
+
         self.pred_dict = pred
         with_mask = 'masks' in self.pred_dict
         labels = self.pred_dict['labels']
         scores = self.pred_dict['scores']
-
         bboxes = self.pred_dict['boxes'].cpu().numpy()
+
         for box, label, score in zip(bboxes, labels, scores):
-            x0, y0 = box[0], box[1]
-            w, h = box[2] - box[0], box[3] - box[1]
-            plt.gca().add_patch(
-                plt.Rectangle((x0, y0),
-                              w,
-                              h,
-                              edgecolor='green',
-                              facecolor=(0, 0, 0, 0),
-                              lw=2))
+            x0, y0, x1, y1 = box
+            draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
 
             if show_label:
-                if isinstance(score, str):
-                    plt.gca().text(x0, y0, f'{label}|{score}', color='green')
-                else:
-                    plt.gca().text(
-                        x0, y0, f'{label}|{round(score, 2)}', color='green')
+                label_text = f'{label}|{round(score, 2)}' if not isinstance(score, str) else f'{label}|{score}'
+                font = ImageFont.load_default()
+                text_location = (x0, y0 - (y1 - y0))
+                draw.text(text_location, label_text, fill='green', font=font)
 
         if with_mask:
             masks = self.pred_dict['masks'].cpu().numpy()
             for mask in masks:
-                if random_color:
-                    color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
-                else:
-                    color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
-                h, w = mask.shape[-2:]
-                mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-                plt.gca().imshow(mask_image)
+                mask = np.squeeze(mask, axis=0)  # Remove single channel dimension if present
+                mask_img = Image.fromarray(mask * 255, mode='L')
 
+                # Create a color overlay for the mask
+                if random_color:
+                    color = tuple(np.random.randint(0, 255, size=3)) + (127,)
+                else:
+                    color = (30, 144, 255, 127)
+
+                mask_color = Image.new('RGBA', img.size, color)
+                img = Image.composite(mask_color, img, mask_img)
+
+        # Convert PIL image back to numpy array for matplotlib
+        img = np.array(img)
+
+        # Display the image using matplotlib
+        plt.imshow(img)
         plt.axis('off')
+
         if save_copy:
-            save_path = os.path.join(self.out_dir, self.text_prompt + '.png')
-            plt.savefig(save_path)
+            save_path = os.path.join(self.out_dir, self.text_prompt + '_mmdetsam.png')
+            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+
         if show_result:
+            plt.title('MMdet_Sam Result')
             plt.show()
 
 

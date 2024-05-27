@@ -1,5 +1,13 @@
-import numpy as np
+"""
+calculate_iou.py
 
+Author: Wanqing Xia
+Email: wxia612@aucklanduni.ac.nz
+
+This script calculates the Intersection over Union (IoU) of two binary masks.
+
+"""
+import numpy as np
 
 def calculate_iou(mask1, mask2):
     """

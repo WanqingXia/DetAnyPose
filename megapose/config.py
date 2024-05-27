@@ -21,7 +21,6 @@ from pathlib import Path
 
 # Third Party
 import pandas as pd
-from joblib import Memory
 
 # MegaPose
 import megapose
@@ -29,45 +28,17 @@ import megapose
 PROJECT_ROOT = Path(megapose.__file__).parent.parent
 PROJECT_DIR = PROJECT_ROOT
 LOCAL_DATA_DIR = Path(os.environ.get("MEGAPOSE_DATA_DIR", Path(PROJECT_DIR) / "data"))
+LOCAL_DATA_DIR.mkdir(exist_ok=True)
 BOP_DS_DIR = LOCAL_DATA_DIR / "bop_datasets"
-NB_DATA_DIR = LOCAL_DATA_DIR / "notebook_data"
-SHAPENET_DIR = LOCAL_DATA_DIR / "shapenetcorev2"
-WDS_DS_DIR = LOCAL_DATA_DIR / "webdatasets"
-
-BOP_TOOLKIT_DIR = PROJECT_ROOT / "deps" / "bop_toolkit_challenge"
-BLENDER_PBR_DS_DIR = LOCAL_DATA_DIR / "blender_pbr_datasets"
-CC_TEXTURE_FOLDER = str(LOCAL_DATA_DIR / "cctextures")
-BLENDER_PROC_DIR = PROJECT_DIR.parent / "blenderproc"
-BLENDER_VERSION = "blender-2.93.8-linux-x64"
-BLENDER_INSTALL_DIR = LOCAL_DATA_DIR / BLENDER_VERSION
-if not BLENDER_INSTALL_DIR.exists():
-    BLENDER_INSTALL_DIR = Path(os.environ["HOME"]) / BLENDER_VERSION
+BOP_DS_DIR.mkdir(exist_ok=True)
 PYTHON_BIN_PATH = Path(os.environ["CONDA_PREFIX"]) / "bin/python"
-
-BOP_PANDA3D_DS_DIR = LOCAL_DATA_DIR / "bop_models_panda3d"
-
-GSO_DIR = LOCAL_DATA_DIR / "google_scanned_objects"
-GSO_ORIG_DIR = GSO_DIR / "models_orig"
-GSO_NORMALIZED_DIR = GSO_DIR / "models_normalized"
-GSO_SCALED_DIR = GSO_DIR / "models_bop-renderer_scale=0.1"
-GSO_POINTCLOUD_DIR = GSO_DIR / "models_pointcloud"
-GSO_SCALE = 0.1
-
 EXP_DIR = LOCAL_DATA_DIR / "experiments"
-RESULTS_DIR = LOCAL_DATA_DIR / "results"
-DEBUG_RESULTS_DIR = LOCAL_DATA_DIR / "debug/results"
 DEBUG_DATA_DIR = LOCAL_DATA_DIR / "debug_data"
-CACHE_DIR = LOCAL_DATA_DIR / "joblib_cache"
+BOP_PANDA3D_DS_DIR = LOCAL_DATA_DIR / "bop_models_panda3d"
+RESULTS_DIR = LOCAL_DATA_DIR / "results"
 
 assert LOCAL_DATA_DIR.exists()
-EXP_DIR.mkdir(exist_ok=True)
 RESULTS_DIR.mkdir(exist_ok=True)
-DEBUG_DATA_DIR.mkdir(exist_ok=True)
-NB_DATA_DIR.mkdir(exist_ok=True)
-BLENDER_PBR_DS_DIR.mkdir(exist_ok=True)
-CACHE_DIR.mkdir(exist_ok=True)
-
-MEMORY = Memory(CACHE_DIR, verbose=2)
 
 
 BOP_DS_NAMES_ROOT = [

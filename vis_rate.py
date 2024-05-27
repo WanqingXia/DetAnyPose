@@ -1,7 +1,7 @@
 """
 vis_rate.py
 
-Author: WanqingXia
+Author: Wanqing Xia
 Email: wxia612@aucklanduni.ac.nz
 
 This script visualizes the success rate of the Detic algorithm.

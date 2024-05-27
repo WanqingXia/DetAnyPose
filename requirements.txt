@@ -28,5 +28,4 @@ meshcat
 opencv-contrib-python
 scikit-learn
 h5py
-blenderproc
 vedo

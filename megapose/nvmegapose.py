@@ -1,5 +1,4 @@
 # Standard Library
-import argparse
 import json
 import os
 from pathlib import Path
@@ -9,9 +8,13 @@ from typing import List, Tuple, Union
 import numpy as np
 from bokeh.io import export_png
 from bokeh.plotting import gridplot
+from bokeh.io.export import get_screenshot_as_png
+
+import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms
 import torch
+from utils.convert import Convert_YCB
 
 # MegaPose
 from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset
@@ -35,9 +38,9 @@ logger = get_logger(__name__)
 
 
 class Megapose:
-    def __init__(self, device, convert):
+    def __init__(self, device):
         self.device = device
-        self.Convert_YCB = convert
+        self.Convert_YCB = Convert_YCB()
         self.model_name = "megapose-1.0-RGB-multi-hypothesis-icp"
         self.model_info = NAMED_MODELS[self.model_name]
         self.camera_data = CameraData.from_json((Path("./data/ycbv_camera_data.json")).read_text())
@@ -72,15 +75,14 @@ class Megapose:
 
         return output
 
-    def output_visualization(self, example_dir: Path) -> None:
-        rgb, _, camera_data = self.load_observation(example_dir, load_depth=False)
-        camera_data.TWC = Transform(np.eye(4))
-        object_datas = self.load_object_data(example_dir / "outputs" / "object_data.json")
-        object_dataset = self.make_object_dataset(example_dir)
+    def visualise_output(self, rgb, pose_estimate, label):
+        self.camera_data.TWC = Transform(np.eye(4))
+        pose = pose_estimate.poses.cpu().numpy()
 
-        renderer = Panda3dSceneRenderer(object_dataset)
+        object_data = [ObjectData(label=label, TWO=Transform(pose.squeeze()))]
+        renderer = Panda3dSceneRenderer(self.object_dataset)
 
-        camera_data, object_datas = convert_scene_observation_to_panda3d(camera_data, object_datas)
+        camera_data, object_datas = convert_scene_observation_to_panda3d(self.camera_data, object_data)
         light_datas = [
             Panda3dLightData(
                 light_type="ambient",
@@ -99,77 +101,34 @@ class Megapose:
 
         plotter = BokehPlotter()
 
-        fig_rgb = plotter.plot_image(rgb)
         fig_mesh_overlay = plotter.plot_overlay(rgb, renderings.rgb)
         contour_overlay = make_contour_overlay(
             rgb, renderings.rgb, dilate_iterations=1, color=(0, 255, 0)
         )["img"]
         fig_contour_overlay = plotter.plot_image(contour_overlay)
-        fig_all = gridplot([[fig_rgb, fig_contour_overlay, fig_mesh_overlay]], toolbar_location=None)
-        vis_dir = example_dir / "visualizations"
-        vis_dir.mkdir(exist_ok=True)
-        export_png(fig_mesh_overlay, filename=vis_dir / "mesh_overlay.png")
-        export_png(fig_contour_overlay, filename=vis_dir / "contour_overlay.png")
-        export_png(fig_all, filename=vis_dir / "all_results.png")
-        logger.info(f"Wrote visualizations to {vis_dir}.")
-        return
 
-    def load_observation(self, example_dir: Path, load_depth: bool = False) -> Tuple[
-        np.ndarray, Union[None, np.ndarray], CameraData]:
-        camera_data = CameraData.from_json((example_dir / "ycbv_camera_data.json").read_text())
+        mesh_overlay_image = get_screenshot_as_png(fig_mesh_overlay)
+        mesh_overlay_image = np.array(mesh_overlay_image)
+        # Plotting with Matplotlib
+        plt.figure()
+        plt.imshow(mesh_overlay_image)
+        plt.title('Mesh Overlay Result')
+        plt.axis('off')  # Hide axes
+        plt.show()
 
-        rgb = np.array(Image.open(example_dir / "image_rgb.png"), dtype=np.uint8)
-        assert rgb.shape[:2] == camera_data.resolution
-
-        depth = None
-        if load_depth:
-            depth = np.array(Image.open(example_dir / "image_depth.png"), dtype=np.float32) / 10000
-            assert depth.shape[:2] == camera_data.resolution
-
-        return rgb, depth, camera_data
-
-    def load_observation_tensor(self,
-            example_dir: Path,
-            load_depth: bool = False,
-    ) -> ObservationTensor:
-        rgb, depth, camera_data = self.load_observation(example_dir, load_depth)
-        observation = ObservationTensor.from_numpy(rgb, depth, camera_data.K)
-        return observation
-
-    def load_object_data(self, data_path: Path) -> List[ObjectData]:
-        object_data = json.loads(data_path.read_text())
-        object_data = [ObjectData.from_json(d) for d in object_data]
-        return object_data
-
-    def load_detections(self, example_dir: Path) -> DetectionsType:
-        input_object_data = self.load_object_data(example_dir / "inputs/object_data.json")
-        detections = make_detections_from_object_data(input_object_data).to(self.device)
-        return detections
-
-    def make_object_dataset(self, cad_model_dir: Path) -> RigidObjectDataset:
-        rigid_objects = []
-        mesh_units = "m"
-        object_dirs = cad_model_dir.iterdir()
-        print("Loading all CAD models from {}, default unit {}, this may take a long time".
-              format(cad_model_dir, mesh_units))
-        for object_dir in object_dirs:
-            label = object_dir.name
-            mesh_path = None
-            for fn in object_dir.glob("*"):
-                if fn.suffix in {".obj", ".ply"}:
-                    assert not mesh_path, f"there multiple meshes in the {label} directory"
-                    mesh_path = fn
-            assert mesh_path, f"couldnt find a obj or ply mesh for {label}"
-            rigid_objects.append(RigidObject(label=label, mesh_path=mesh_path, mesh_units=mesh_units))
-            # TODO: fix mesh units
-        rigid_object_dataset = RigidObjectDataset(rigid_objects)
-        return rigid_object_dataset
+        contour_overlay_image = get_screenshot_as_png(fig_contour_overlay)
+        contour_overlay_image = np.array(contour_overlay_image)
+        plt.figure()
+        plt.imshow(contour_overlay_image)
+        plt.title('Contour Overlay Result')
+        plt.axis('off')  # Hide axes
+        plt.show()
 
     def make_ycb_object_dataset(self, cad_model_dir: Path) -> RigidObjectDataset:
         rigid_objects = []
         mesh_units = "mm"
         object_plys = sorted(cad_model_dir.rglob('*.ply'))
-        print("Loading all CAD models from {}, default unit {}, this may take a long time".
+        print("Loading all CAD models from {}, default unit {}.".
               format(cad_model_dir, mesh_units))
         for num, object_ply in enumerate(object_plys):
             label = self.Convert_YCB.convert_number(num + 1)
@@ -177,21 +136,17 @@ class Megapose:
         rigid_object_dataset = RigidObjectDataset(rigid_objects)
         return rigid_object_dataset
 
-    def save_predictions(self,
-            example_dir: Path,
-            pose_estimates: PoseEstimatesType,
-    ) -> None:
+    def save_predictions(self, out_dir, pose_estimates):
         labels = pose_estimates.infos["label"]
         poses = pose_estimates.poses.cpu().numpy()
         object_data = [
             ObjectData(label=label, TWO=Transform(pose)) for label, pose in zip(labels, poses)
         ]
         object_data_json = json.dumps([x.to_json() for x in object_data])
-        output_fn = example_dir / "object_data.json"
+        output_fn = Path(out_dir) / "object_data.json"
         output_fn.parent.mkdir(exist_ok=True)
         output_fn.write_text(object_data_json)
         logger.info(f"Wrote predictions: {output_fn}")
-        return
 
     def load_renders(self, renders_path):
         # Dictionary to hold the tensors for each sub-folder

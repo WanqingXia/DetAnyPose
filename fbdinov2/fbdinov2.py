@@ -1,3 +1,14 @@
+"""
+fbdinov2.py
+
+Author: Wanqing Xia
+Email: wxia612@aucklanduni.ac.nz
+
+This script contains the DINOv2 class which is used for object identification.
+It includes methods for reading image data, preprocessing images,
+and performing forward passes through the DINOv2 model.
+The script also handles caching of embeddings for efficiency.
+"""
 import os
 import torch
 import numpy as np
@@ -8,11 +19,10 @@ import torchvision.transforms as T
 from PIL import Image
 from tqdm import tqdm
 
-
 class DINOv2:
-    def __init__(self, device, viewpoints_path):
+    def __init__(self, device):
         self.device = device  # Default device used for det inference
-        self.viewpoints_path = viewpoints_path
+        self.viewpoints_path = Path("./data/ycbv_generated")
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
@@ -82,12 +92,11 @@ class DINOv2:
         The keys of the dictionary are the folder names, and the values are lists of tuples.
         Each tuple consists of a file path and its content.
 
+        note: only read the images with the name format 'rgb_*.png' and the number is divisible by 12.
+        This is customised for images generated with data_576.qua.
+
         Parameters:
         folders (list): A list of folder paths to read text files from.
-
-        Returns:
-        dict: A dictionary where each key is a folder name, and each value is a sub-dictionary.
-              Each sub-dictionary contains the path to a text file as key and its content as value.
         """
         gen_paths = sorted([p for p in Path(self.viewpoints_path).glob('*') if p.is_dir()])
         for folder in gen_paths:
@@ -106,6 +115,12 @@ class DINOv2:
                 print(f"The folder {folder} does not exist.")
 
     def create_cache(self, hash_value):
+        """
+        Read images for each object, convert to embeddings and save to cache file.
+
+        Parameters:
+        hash_value (string): A string of 64 hexadecimal character.
+        """
         for folder, image_list in tqdm(self.viewpoints_images.items()):
             tensors_list = []
             for image in image_list:
@@ -125,38 +140,3 @@ class DINOv2:
         }
         torch.save(data_to_save, self.cache)
 
-    def search_img(self, ref_poses, obj_name):
-        """
-        Find the closest pose in the viewpoint list to the original pose.
-
-        Args:
-            ref_poses (numpy.ndarray): The original pose of the object of interest.
-            obj_name (str): The name of the object
-
-        Returns:
-            str: The file name of the generated pose that is closest to the original pose.
-
-        """
-        # Find the closest pose
-        tmp = [1000, 1000, 1000]
-        path = ''
-        for image_path, pose in self.viewpoints_poses[obj_name].items():
-            angle_diff = self.angle_between_rotation_matrices(ref_poses, pose)
-            if np.abs(angle_diff[2]) < np.abs(tmp[2]):
-                tmp = angle_diff
-                path = image_path
-        return path
-
-    @staticmethod
-    def angle_between_rotation_matrices(m1, m2):
-        def angle_between_vectors(v1, v2):
-            v1_u = v1 / np.linalg.norm(v1)
-            v2_u = v2 / np.linalg.norm(v2)
-            angle_radians = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-            return np.degrees(angle_radians)
-
-        """Calculate the angle in degrees between vectors 'v1' and 'v2'."""
-        angle_diff = [angle_between_vectors(m1[0, :3], m2[0, :3]),
-                      angle_between_vectors(m1[1, :3], m2[1, :3]),
-                      angle_between_vectors(m1[2, :3], m2[2, :3])]
-        return angle_diff
