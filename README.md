@@ -8,7 +8,7 @@ The overall architecture is mmdetection + Segment Anything + DINOv2 + Megapose. 
 
 ### Clone project and create environment with conda
 ```shell
-git clone https://github.com/WanqingXia/SiameseViT.git -b newArchi
+git clone https://github.com/WanqingXia/SiameseViT.git
 
 conda env create -f environment.yaml
 conda activate ViTpose
