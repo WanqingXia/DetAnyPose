@@ -20,9 +20,7 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 from tqdm import tqdm
-from mmdet_sam import mmdet_sam
-from fbdinov2 import fbdinov2
-from megapose import nvmegapose
+from classes import mmdet_sam, megapose, dinov2
 from utils.choose import validate_preds
 from utils.convert import Convert_YCB
 import time
@@ -35,8 +33,8 @@ def main(root_path, device):
     convert_YCB = Convert_YCB()
 
     MMDet_SAM = mmdet_sam.MMDet_SAM(device)
-    DINOv2 = fbdinov2.DINOv2(device)
-    Megapose = nvmegapose.Megapose(device)
+    DINOv2 = dinov2.DINOv2(device)
+    Megapose = megapose.Megapose(device)
 
     # Initialize the list to store result
     data = []

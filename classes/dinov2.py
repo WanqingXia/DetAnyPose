@@ -1,5 +1,5 @@
 """
-fbdinov2.py
+dinov2.py
 
 Author: Wanqing Xia
 Email: wxia612@aucklanduni.ac.nz
