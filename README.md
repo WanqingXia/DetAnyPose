@@ -4,7 +4,11 @@ This project aims to combine some state-of-the-art algorithms and pre-trained mo
 
 The overall architecture is mmdetection + Segment Anything + DINOv2 + Megapose. The object name will first be input to mmdetection for the bounding box. The bounding box will be used by SAM to segment out the object. Then, segmented images are used by DINOv2 to score the objects. Finally, the coarse object pose will be found by matching rendered templates with the segmented image by Megapose and refined. The whole 6D pose estimation pipeline is shown in the graph below.
 
+![6D pose estimation pipeline](Pipeline.jpg)
+
 Compared to other methods, our proposed pipeline achieved SOTA performance. Compared to the original Megapose algorithm, our method improved the AR score by 12.5 points while the execution time was reduced for more than one second. The comparison of our method with others are shown in the table below.
+
+![Comparision with other methods](table.jpg)
 
 ## Base Development Environment Setup
 
