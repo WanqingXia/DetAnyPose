@@ -152,7 +152,8 @@ cython_debug/
 .idea/
 dinov2/
 mmdetection/
-models/
+/models
+!/*/models
 outputs/
 data/ycbv_generated
 data/embeddings48.pt
