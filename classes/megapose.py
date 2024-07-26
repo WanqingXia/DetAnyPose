@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms
 import torch
-from utils.convert import Convert_YCB
 
 # MegaPose
 from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset
@@ -38,18 +37,18 @@ logger = get_logger(__name__)
 
 
 class Megapose:
-    def __init__(self, device):
+    def __init__(self, device, convert, d_name):
         self.device = device
-        self.Convert_YCB = Convert_YCB()
+        self.convert = convert
         self.model_name = "megapose-1.0-RGB-multi-hypothesis-icp"
         self.model_info = NAMED_MODELS[self.model_name]
-        self.camera_data = CameraData.from_json((Path("./data/ycbv_camera_data.json")).read_text())
+        self.camera_data = CameraData.from_json((Path("./data/" + d_name + "camera_data.json")).read_text())
         self.models_path = Path("./models/megapose-models")
-        self.cad_path = Path("./bop_datasets/ycbv/models")
+        self.cad_path = Path("./bop_datasets/" + d_name + "/models")
         self.object_dataset = self.make_ycb_object_dataset(self.cad_path)
         logger.info(f"Loading model {self.model_name}.")
         self.pose_estimator = load_named_model(self.model_name, self.models_path, self.object_dataset).to(self.device)
-        self.renders_path = Path("./data/ycbv_generated")
+        self.renders_path = Path("./data/" + d_name + "_generated")
         renders = self.load_renders(self.renders_path)
         self.pose_estimator.attach_renders(renders)
 
@@ -131,7 +130,7 @@ class Megapose:
         print("Loading all CAD models from {}, default unit {}.".
               format(cad_model_dir, mesh_units))
         for num, object_ply in enumerate(object_plys):
-            label = self.Convert_YCB.convert_number(num + 1)
+            label = self.convert.convert_number(num + 1)
             rigid_objects.append(RigidObject(label=label, mesh_path=object_ply, mesh_units=mesh_units))
         rigid_object_dataset = RigidObjectDataset(rigid_objects)
         return rigid_object_dataset

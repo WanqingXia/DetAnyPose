@@ -18,15 +18,16 @@ from pathlib import Path
 import torchvision.transforms as T
 from PIL import Image
 from tqdm import tqdm
+from generate.generate_bop import generate_bop
 
 class DINOv2:
-    def __init__(self, device):
+    def __init__(self, device, convert, d_name):
         self.device = device  # Default device used for det inference
-        self.viewpoints_path = Path("./data/ycbv_generated")
+        self.viewpoints_path = Path("./data/" + d_name + "_generated")
         self.viewpoints_poses = {}
         self.viewpoints_images = {}
         self.viewpoints_embeddings = {}
-        self.cache = "./data/embeddings48.pt"
+        self.cache = "./data/embeddings_" + d_name + "_48.pt"
         self.model = torch.hub.load('dinov2', 'dinov2_vitl14', source='local', pretrained=True)
         self.model.to(self.device)
         self.model.load_state_dict(torch.load('./models/dinov2_vitl14_pretrain.pth'))
@@ -35,6 +36,10 @@ class DINOv2:
         # Resize the image
         self.dinov2_size = (224, 224)
         self.resize_transform = T.Resize(self.dinov2_size)
+        if self.viewpoints_path.exists():
+            pass
+        else:
+            generate_bop(convert, d_name)
 
         # Read the contents of the viewpoints file
         self.read_folders_contents()

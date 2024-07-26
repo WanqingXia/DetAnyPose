@@ -17,7 +17,6 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 import numpy as np
 from utils.similarity import CosineSimilarity
-from utils.convert import Convert_YCB
 
 def draw_outcome(img, pred, best_pred):
     """
@@ -63,9 +62,12 @@ def draw_outcome(img, pred, best_pred):
     plt.show()
 
 
-def get_embedding(image, mask, box, dinov2):
+def get_embedding(image, mask, box, dinov2, disable_sam):
     # Apply the mask directly to the original image
-    masked_img = cv2.bitwise_and(image, image, mask=mask)
+    if disable_sam:
+        masked_img = image.copy()
+    else:
+        masked_img = cv2.bitwise_and(image, image, mask=mask)
 
     # Crop the masked image using the bounding box
     x0, y0, x1, y1 = map(int, box)
@@ -91,7 +93,7 @@ def get_embedding(image, mask, box, dinov2):
     return embed_img, final_img_resized
 
 
-def validate_preds(img, pred, dinov2, show_result=False):
+def validate_preds(img, pred, dinov2, show_result=False, disable_sam=False):
     """
     :param img: RGB cv2 image
     :param pred: the prediction of masks which includes 'boxes', 'scores', 'labels', 'masks'
@@ -100,12 +102,10 @@ def validate_preds(img, pred, dinov2, show_result=False):
     """
     num_predictions = len(pred['labels'])
     CosineSim = CosineSimilarity()
-    convert_YCB = Convert_YCB()
     best_pred = 0
     if num_predictions > 1:
         original_label = pred['labels'][0]
-        label = convert_YCB.convert_name(original_label)
-        cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[label])))
+        cos_similarities = np.zeros((num_predictions, len(dinov2.viewpoints_embeddings[original_label])))
 
         # Process each prediction mask
         for i in range(num_predictions):
@@ -113,10 +113,10 @@ def validate_preds(img, pred, dinov2, show_result=False):
             mask = pred['masks'][i].cpu().numpy().astype(np.uint8)
             mask = np.transpose(mask, (1, 2, 0))  # Change order to (H, W, C) for CV2
             box = pred['boxes'][i].cpu().numpy().astype(int)  # Format: [x0, y0, x1, y1]
-            embed_img, _ = get_embedding(img_copy, mask, box, dinov2)
+            embed_img, _ = get_embedding(img_copy, mask, box, dinov2, disable_sam)
 
             # Calculate similarity
-            reference_embedding = dinov2.viewpoints_embeddings[label]
+            reference_embedding = dinov2.viewpoints_embeddings[original_label]
             cos_similarities[i, :] = CosineSim(embed_img, reference_embedding)
 
         # Choose the best viewpoint
