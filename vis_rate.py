@@ -10,7 +10,7 @@ calculates the success rate for each object, and visualizes the results in a sta
 """
 import pandas as pd
 import matplotlib.pyplot as plt
-from utils.convert import Convert_YCB
+from utils.convertn import *
 
 
 def calculate_counts(df):
@@ -44,13 +44,13 @@ def plot_results(counts, converted_obj_ids):
     plt.show()
 
 # Main code
-convert_ycb = Convert_YCB()
+convert = Convert_HB()
 # Load the CSV file
-file_path = './outputs/DeticSamDino_ycbv-test.csv'
+file_path = './outputs/Detic_hb-test.csv'
 df = pd.read_csv(file_path, delimiter=',')
 # Strip any leading/trailing spaces from column names
 df.columns = df.columns.str.strip()
 counts = calculate_counts(df)
-converted_obj_ids = [convert_ycb.convert_number(obj_id) for obj_id in counts.index]
+converted_obj_ids = [convert.convert_number(obj_id-1) for obj_id in counts.index]
 plot_results(counts, converted_obj_ids)
 

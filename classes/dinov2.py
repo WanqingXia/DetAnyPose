@@ -106,6 +106,7 @@ class DINOv2:
         gen_paths = sorted([p for p in Path(self.viewpoints_path).glob('*') if p.is_dir()])
         for folder in gen_paths:
             folder_name = str(folder.name)
+            folder_name = folder_name.split('_')[1]
             if folder_name not in self.viewpoints_images:
                 self.viewpoints_images[folder_name] = []
             # Extracts the last part of the path as the folder name

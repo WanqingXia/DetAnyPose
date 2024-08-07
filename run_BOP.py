@@ -27,6 +27,7 @@ import time
 import csv
 import json
 import torch
+import pickle
 
 def main(root_path, device, convert, d_name, m):
     folder_paths = sorted([p for p in (Path(root_path) / 'test').glob('*') if p.is_dir()])
@@ -43,8 +44,19 @@ def main(root_path, device, convert, d_name, m):
         rgb_files = sorted((folder / "rgb").rglob('*.png'))
         dep_files = sorted((folder / "depth").rglob('*.png'))
         mask_files = sorted((folder / "mask").rglob('*.png'))
-        objs_in_scene = int(len(mask_files) / len(rgb_files))
         t = 0
+
+        with open((folder / "scene_gt.json"), 'r') as f:
+            scene_data = json.load(f)
+
+        # detic_file_path = folder / 'scene_detic.pkl'
+        # run_detic = True
+        # if detic_file_path.exists():
+        #     run_detic = False
+        #     with open(detic_file_path, 'rb') as f:
+        #         detic_data = pickle.load(f)
+        # else:
+        #     detic_save = []
 
         for num in tqdm(range(0, len(rgb_files)), desc=f'Processing images in {folder}'):
             rgb_path = rgb_files[num]
@@ -54,26 +66,33 @@ def main(root_path, device, convert, d_name, m):
             depth = Image.open(dep_path)
             depth = np.array(depth, dtype=np.float32) / 10000
 
-            with open((folder / "scene_gt.json"), 'r') as f:
-                scene_data = json.load(f)
-            first_row_key = list(scene_data.keys())[0]  # Get the key for the first row
-            first_row_objects = scene_data[first_row_key]  # Get the list of objects in the first row
-            obj_ids = [obj['obj_id'] for obj in first_row_objects]  # Extract all obj_id values
+            row_keys = list(scene_data.keys())[num]  # Get the key for the first row
+            row_objects = scene_data[row_keys]  # Get the list of objects in the first row
+            obj_ids = [obj['obj_id'] for obj in row_objects]  # Extract all obj_id values
+            objs_in_scene = len(obj_ids)
+            # if run_detic:
+            #     detic_sub_save = []
 
             for index, obj_id in enumerate(obj_ids):
                 tic = time.time()
                 success_flag = False
                 pose_estimation = 0
 
-                desc_name = convert.convert_number(obj_id)
+                desc_name = convert.convert_number(obj_id-1)
                 pred = MMDet_SAM.run_detector(rgb.copy(), desc_name)
+                # if run_detic:
+                #     desc_name = convert.convert_number(obj_id-1)
+                #     pred = MMDet_SAM.run_detector(rgb.copy(), desc_name)
+                #     detic_sub_save.append(pred)
+                # else:
+                #     pred = detic_data[num][index]
 
                 if len(pred['labels']) > 0:
                     """Testing code for Detic + SAM + DINOv2 scores"""
                     if m == 'DeticSamDino':
                         best_pred = validate_preds(rgb, pred, DINOv2)
                         bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                        desc_name = convert.convert_number(pred['labels'][best_pred])
+                        desc_name = pred['labels'][best_pred]
 
                         mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
                         mask = np.transpose(mask, (1, 2, 0))
@@ -89,7 +108,7 @@ def main(root_path, device, convert, d_name, m):
                         """Testing code for Detic + DINOv2"""
                         best_pred = validate_preds(rgb, pred, DINOv2, disable_sam=True)
                         bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                        desc_name = convert.convert_number(pred['labels'][best_pred])
+                        desc_name = pred['labels'][best_pred]
                         pose_estimation = Megapose.inference(rgb, depth, desc_name, bbox)
                         success_flag = True
 
@@ -97,7 +116,7 @@ def main(root_path, device, convert, d_name, m):
                         """Testing code for Detic + SAM"""
                         best_pred = np.argmax(pred['scores'])
                         bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                        desc_name = convert.convert_number(pred['labels'][best_pred])
+                        desc_name = pred['labels'][best_pred]
 
                         mask = pred['masks'][best_pred].cpu().numpy().astype(np.uint8)
                         mask = np.transpose(mask, (1, 2, 0))
@@ -113,8 +132,8 @@ def main(root_path, device, convert, d_name, m):
                         """Testing code for Detic"""
                         best_pred = np.argmax(pred['scores'])
                         bbox = np.round(pred['boxes'][best_pred].cpu().numpy()).astype(int)
-                        original_name = convert.convert_number(pred['labels'][best_pred])
-                        pose_estimation = Megapose.inference(rgb, depth, original_name, bbox)
+                        desc_name = pred['labels'][best_pred]
+                        pose_estimation = Megapose.inference(rgb, depth, desc_name, bbox)
                         success_flag = True
 
                 t += time.time() - tic
@@ -142,6 +161,12 @@ def main(root_path, device, convert, d_name, m):
                         data[i][-1] = t
                     t = 0
 
+        #     if run_detic:
+        #         detic_save.append(detic_sub_save)
+        #
+        # if run_detic:
+        #     with open(detic_file_path, 'wb') as f:
+        #         pickle.dump(detic_save, f)
     return data
 
 def save_results(data, file_path):
@@ -154,12 +179,13 @@ def save_results(data, file_path):
 
 if __name__ == "__main__":
     device = torch.device('cuda:0')
-    dataset_name = ['lm', 'lmo', 'hb', 'hope', 'ycbv']
-    methods = ['Detic', 'DeticDino', 'DeticSam', 'DeticSamDino']
+    dataset_name = ['lm', 'lmo', 'hb']
+    # methods = ['Detic', 'DeticDino', 'DeticSam', 'DeticSamDino']
+    methods = ['Detic']
     for d_name in dataset_name:
         root_path = './bop_datasets/' + d_name
         dataset_camera = root_path + '/camera.json'
-        template_json_path = Path("../data/camera_data.json")
+        template_json_path = Path("./data/camera_data.json")
         json_save_path = root_path + '/camera_data.json'
         # Read the JSON file
         with open(template_json_path, 'r') as file:
@@ -167,11 +193,11 @@ if __name__ == "__main__":
         with open(dataset_camera, 'r') as file:
             cam_data = json.load(file)
         # Modify the parameters in the JSON data
-        data['K'][0][0] = cam_data.fx
-        data['K'][0][2] = cam_data.cx
-        data['K'][1][1] = cam_data.fy
-        data['K'][1][2] = cam_data.cy
-        data['resolution'] = [cam_data.height, cam_data.width]
+        data['K'][0][0] = cam_data['fx']
+        data['K'][0][2] = cam_data['cx']
+        data['K'][1][1] = cam_data['fy']
+        data['K'][1][2] = cam_data['cy']
+        data['resolution'] = [cam_data['height'], cam_data['width']]
 
         # Save the updated JSON data back to the file
         with open(json_save_path, 'w') as file:

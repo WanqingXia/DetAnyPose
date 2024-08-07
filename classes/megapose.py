@@ -42,7 +42,7 @@ class Megapose:
         self.convert = convert
         self.model_name = "megapose-1.0-RGB-multi-hypothesis-icp"
         self.model_info = NAMED_MODELS[self.model_name]
-        self.camera_data = CameraData.from_json((Path("./data/" + d_name + "camera_data.json")).read_text())
+        self.camera_data = CameraData.from_json((Path("./bop_datasets/" + d_name + "/camera_data.json")).read_text())
         self.models_path = Path("./models/megapose-models")
         self.cad_path = Path("./bop_datasets/" + d_name + "/models")
         self.object_dataset = self.make_ycb_object_dataset(self.cad_path)
@@ -130,7 +130,7 @@ class Megapose:
         print("Loading all CAD models from {}, default unit {}.".
               format(cad_model_dir, mesh_units))
         for num, object_ply in enumerate(object_plys):
-            label = self.convert.convert_number(num + 1)
+            label = self.convert.convert_number(num)
             rigid_objects.append(RigidObject(label=label, mesh_path=object_ply, mesh_units=mesh_units))
         rigid_object_dataset = RigidObjectDataset(rigid_objects)
         return rigid_object_dataset
@@ -184,6 +184,7 @@ class Megapose:
 
                 # Stack all image tensors to create a single tensor of shape [576, 6, H, W]
                 folder_tensor = torch.stack(images_list)
+                sub_folder = sub_folder.split('_')[1]
                 folder_tensors[sub_folder] = folder_tensor
 
         return folder_tensors

@@ -156,6 +156,12 @@ mmdetection/
 !/*/models
 outputs/
 data/ycbv_generated
-data/embeddings48.pt
+data/hb_generated
+data/lm_generated
+data/lmo_generated
+data/embeddings_lm_48.pt
+data/embeddings_lmo_48.pt
+data/embeddings_hb_48.pt
+data/embeddings_ycbv_48.pt
 bop_toolkit/
 bop_datasets/
