@@ -1,4 +1,4 @@
-# ViTpose
+# DetAnyPose
  
 This project aims to combine some state-of-the-art algorithms and pre-trained models together to achieve 6D pose estimation of ANYTHING, as long as the 3D CAD model is available.
 
@@ -6,7 +6,7 @@ The overall architecture is mmdetection + Segment Anything + DINOv2 + Megapose. 
 
 ![6D pose estimation pipeline](Pipeline.jpg)
 
-Compared to other methods, our proposed pipeline achieved SOTA performance. Compared to the original Megapose algorithm, our method improved the AR score by 12.5 points while the execution time was reduced for more than one second. The comparison of our method with others are shown in the table below.
+Compared to other methods, our proposed pipeline achieved SOTA performance. Compared to the original Megapose algorithm, our method improved the AR score by 12.5 points while the execution time was reduced for more than one second. The comparison of our method with others is shown in the table below.
 
 ![Comparision with other methods](table.jpg)
 
@@ -14,10 +14,10 @@ Compared to other methods, our proposed pipeline achieved SOTA performance. Comp
 
 ### Clone project and create environment with conda
 ```shell
-git clone https://github.com/WanqingXia/ViTpose.git
+git clone https://github.com/WanqingXia/DetAnyPose.git
 
 conda env create -f environment.yaml
-conda activate ViTpose
+conda activate DetAnyPose
 ```
 
 ### Dependencies Installation
